@@ -12,7 +12,8 @@ let latestMessage = null;
 
 const WHITELISTED_USERS = [
   '1167121753672257576',
-  '1013186507919593542'
+  '1013186507919593542',
+  '1336959646174285824'
 ];
 
 app.post('/send', (req, res) => {
