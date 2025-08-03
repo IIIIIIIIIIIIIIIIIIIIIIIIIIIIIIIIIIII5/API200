@@ -1,3 +1,5 @@
+require('dotenv').config();
+
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -5,7 +7,15 @@ const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
 const fetch = require('node-fetch');
-const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes, Events, PermissionFlagsBits } = require('discord.js');
+const {
+  Client,
+  GatewayIntentBits,
+  SlashCommandBuilder,
+  REST,
+  Routes,
+  Events,
+  PermissionFlagsBits,
+} = require('discord.js');
 
 const STORAGE_PATH = path.join(__dirname, 'store.json');
 
@@ -34,10 +44,9 @@ let store = loadStore();
 app.get('/validate', (req, res) => {
   const key = req.header('x-api-key') || req.query.key;
   if (!key) return res.status(400).json({ error: 'Missing key' });
-
   const guildEntry = Object.values(store.guilds).find(g => g.apiKey === key);
   if (!guildEntry) return res.status(403).json({ error: 'Invalid API key' });
-  return res.json({ valid: true });
+  return res.json({ valid: true, requiredPermission: guildEntry.requiredPermission || 'ManageGuild' });
 });
 
 app.post('/send', (req, res) => {
@@ -45,7 +54,7 @@ app.post('/send', (req, res) => {
   const key = req.header('x-api-key') || req.query.key;
   if (!key) return res.status(400).json({ error: 'Missing API key' });
   if (!type || !title || !message) return res.status(400).json({ error: 'Missing fields' });
-  
+
   store = loadStore();
   const guildEntry = Object.values(store.guilds).find(g => g.apiKey === key);
   if (!guildEntry) return res.status(403).json({ error: 'Invalid API key' });
@@ -78,16 +87,25 @@ app.listen(PORT, () => console.log(`API server running on port ${PORT}`));
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
-const syncCommand = new SlashCommandBuilder()
-  .setName('sync')
-  .setDescription('Generate or view this server’s API key for Roblox broadcasts')
-  .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild);
+const VALID_PERMS = Object.keys(PermissionFlagsBits);
+
+const setupCommand = new SlashCommandBuilder()
+  .setName('setup')
+  .setDescription('Generate/view this server’s API key and choose required permission for broadcasts')
+  .addStringOption(option =>
+    option
+      .setName('permission')
+      .setDescription('Discord permission required to use /broadcast and /servers')
+      .setRequired(true)
+      .setAutocomplete(true)
+  );
 
 const broadcastCommand = new SlashCommandBuilder()
-  .setName('broadcast')
-  .setDescription('Send a message to all Roblox players for this guild')
+  .setName('announce')
+  .setDescription('Send a message to all players in game')
   .addStringOption(option =>
-    option.setName('type')
+    option
+      .setName('type')
       .setDescription('Type of message')
       .setRequired(true)
       .addChoices(
@@ -105,7 +123,7 @@ const broadcastCommand = new SlashCommandBuilder()
 
 const serversCommand = new SlashCommandBuilder()
   .setName('servers')
-  .setDescription('Get the number of active servers for a roblox game.')
+  .setDescription('Get the number of active public servers for a Roblox place.')
   .addStringOption(option =>
     option.setName('placeid')
       .setDescription('Roblox place ID or universe ID')
@@ -116,7 +134,7 @@ async function registerCommandsForGuild(guildId) {
   try {
     await rest.put(
       Routes.applicationGuildCommands(process.env.CLIENT_ID, guildId),
-      { body: [syncCommand.toJSON(), broadcastCommand.toJSON(), serversCommand.toJSON()] }
+      { body: [setupCommand.toJSON(), broadcastCommand.toJSON(), serversCommand.toJSON()] }
     );
     console.log(`Registered commands for guild ${guildId}`);
   } catch (err) {
@@ -126,7 +144,6 @@ async function registerCommandsForGuild(guildId) {
 
 client.once(Events.ClientReady, async () => {
   console.log(`Logged in as ${client.user.tag}`);
-
   for (const [guildId] of client.guilds.cache) {
     await registerCommandsForGuild(guildId);
   }
@@ -137,35 +154,68 @@ client.on(Events.GuildCreate, guild => {
 });
 
 client.on(Events.InteractionCreate, async interaction => {
-  if (!interaction.isChatInputCommand()) return;
-
-  store = loadStore();
-
-  const guildId = interaction.guildId;
-  if (!guildId) return interaction.reply({ content: 'Must be used in a server.', ephemeral: true });
-
-  if (interaction.commandName === 'sync') {
-    let entry = store.guilds[guildId];
-    if (!entry) {
-      const newKey = generateKey();
-      entry = { apiKey: newKey, createdAt: Date.now() };
-      store.guilds[guildId] = entry;
-      saveStore(store);
+  if (interaction.isAutocomplete()) {
+    if (interaction.commandName === 'setup') {
+      const focused = interaction.options.getFocused();
+      const suggestions = VALID_PERMS
+        .filter(p => p.toLowerCase().includes(focused.toLowerCase()))
+        .slice(0, 25)
+        .map(p => ({ name: p, value: p }));
+      await interaction.respond(suggestions);
     }
-
-    await interaction.reply({
-      content: `API Key for this server: \`${entry.apiKey}\`\nYou must add the key to your Roblox game (use it as ?key=...).`,
-      ephemeral: true
-    });
     return;
   }
 
-  if (interaction.commandName === 'broadcast') {
-    const guildEntry = store.guilds[guildId];
-    if (!guildEntry) {
-      return interaction.reply({ content: 'This server is not synced. Run `/sync` first.', ephemeral: true });
+  if (!interaction.isChatInputCommand()) return;
+
+  store = loadStore();
+  const guildId = interaction.guildId;
+  if (!guildId) return interaction.reply({ content: 'Must be used in a server.', ephemeral: true });
+
+  if (interaction.commandName === 'setup') {
+    const chosen = interaction.options.getString('permission');
+
+    if (!VALID_PERMS.includes(chosen)) {
+      const sample = ['ManageGuild', 'ManageMessages', 'KickMembers', 'BanMembers', 'Administrator'];
+      return interaction.reply({
+        content: `Invalid permission \`${chosen}\`. Examples: ${sample.map(p => `\`${p}\``).join(', ')}.`,
+        ephemeral: true
+      });
     }
 
+    let entry = store.guilds[guildId];
+    if (!entry) {
+      const newKey = generateKey();
+      entry = {
+        apiKey: newKey,
+        createdAt: Date.now(),
+        requiredPermission: chosen
+      };
+    } else {
+      entry.requiredPermission = chosen;
+    }
+    store.guilds[guildId] = entry;
+    saveStore(store);
+
+    await interaction.reply({ content: `API Key: \`${entry.apiKey}\`\nRequired permission to use announce/servers: \`${entry.requiredPermission}\`.`, ephemeral: true });
+    return;
+  }
+
+  const guildEntry = store.guilds[guildId];
+  if (!guildEntry && (interaction.commandName === 'announce' || interaction.commandName === 'servers')) {
+    return interaction.reply({ content: 'This server is not set up. Run `/setup` first.', ephemeral: true });
+  }
+
+  const requiredPerm = guildEntry?.requiredPermission || 'ManageGuild';
+  const hasPermission = interaction.member.permissions
+    ? interaction.member.permissions.has(PermissionFlagsBits[requiredPerm])
+    : false;
+
+  if ((interaction.commandName === 'announce' || interaction.commandName === 'servers') && !hasPermission) {
+    return interaction.reply({ content: `You do not have the required permission (\`${requiredPerm}\`) to use this command.`, ephemeral: true });
+  }
+
+  if (interaction.commandName === 'announce') {
     const type = interaction.options.getString('type');
     const title = interaction.options.getString('title');
     const message = interaction.options.getString('message');
@@ -178,8 +228,7 @@ client.on(Events.InteractionCreate, async interaction => {
       });
 
       if (!resp.ok) throw new Error('API error');
-
-      await interaction.reply({ content: `Announcement sent for this server.\n**${type}**: ${title}`, ephemeral: true });
+      await interaction.reply({ content: `Announcement sent.\n**${type}**: ${title}`, ephemeral: true });
     } catch (err) {
       console.error('Failed announcement:', err);
       await interaction.reply({ content: 'Failed to send announcement.', ephemeral: true });
@@ -189,7 +238,6 @@ client.on(Events.InteractionCreate, async interaction => {
 
   if (interaction.commandName === 'servers') {
     const placeId = interaction.options.getString('placeid');
-
     try {
       let universeId = placeId;
 
@@ -202,7 +250,7 @@ client.on(Events.InteractionCreate, async interaction => {
       }
 
       let total = 0;
-      let cursor = nil
+      let cursor = null;
       do {
         const url = new URL(`https://games.roblox.com/v1/games/${encodeURIComponent(universeId)}/servers/Public`);
         url.searchParams.set('sortOrder', 'Asc');
@@ -216,7 +264,7 @@ client.on(Events.InteractionCreate, async interaction => {
         cursor = page.nextPageCursor;
       } while (cursor);
 
-      await interaction.reply({ content: `Total active public servers: ${total}` });
+      await interaction.reply({ content: `Total active servers: ${total}` });
     } catch (err) {
       console.error('Error fetching servers:', err);
       await interaction.reply({ content: 'Failed to fetch server count.', ephemeral: true });
