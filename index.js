@@ -105,7 +105,7 @@ const broadcastCommand = new SlashCommandBuilder()
 
 const serversCommand = new SlashCommandBuilder()
   .setName('servers')
-  .setDescription('Get number of active public servers for a Roblox place.')
+  .setDescription('Get the number of active servers for a roblox game.')
   .addStringOption(option =>
     option.setName('placeid')
       .setDescription('Roblox place ID or universe ID')
