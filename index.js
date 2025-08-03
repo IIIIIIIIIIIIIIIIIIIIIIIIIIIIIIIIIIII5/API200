@@ -28,7 +28,6 @@ function saveStore(store) {
   try {
     const tempPath = STORAGE_PATH + '.tmp';
     fs.writeFileSync(tempPath, JSON.stringify(store, null, 2), { mode: 0o600 });
-    // rename is atomic on most platforms
     fs.renameSync(tempPath, STORAGE_PATH);
   } catch (e) {
     console.error('Failed to save store.json via atomic rename, attempting direct write:', e);
@@ -59,7 +58,9 @@ app.get('/keys', (req, res) => {
       apiKey: entry.apiKey,
       requiredPermission: entry.requiredPermission,
       createdAt: entry.createdAt,
-      createdAtReadable: entry.createdAt ? new Date(entry.createdAt).toISOString() : null
+     createdAtReadable: entry.createdAt
+  ? new Date(entry.createdAt).toISOString().replace('T', ' ').replace(/\.\d+Z$/, '')
+  : null
     };
   }
 
