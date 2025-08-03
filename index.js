@@ -28,7 +28,6 @@ app.post('/send', (req, res) => {
     timestamp: Date.now()
   };
 
-  console.log('[API] New broadcast stored:', latestMessage);
   return res.json({ success: true });
 });
 
@@ -73,9 +72,9 @@ client.once(Events.ClientReady, async () => {
       Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID),
       { body: [broadcastCommand.toJSON()] }
     );
-    console.log('Slash command registered.');
+    console.log('Slash command created.');
   } catch (err) {
-    console.error('Failed to register slash command:', err);
+    console.error('Failed to create slash command:', err);
   }
 });
 
@@ -104,7 +103,6 @@ client.on(Events.InteractionCreate, async interaction => {
 
     await interaction.reply(`Announcement sent!\n**${type}**: ${title}`);
   } catch (err) {
-    console.error('Error sending broadcast to API:', err);
     await interaction.reply({ content: 'Failed to send announcement.', ephemeral: true });
   }
 });
