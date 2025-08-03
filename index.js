@@ -35,7 +35,18 @@ let store = loadStore();
 
 app.get('/keys', (req, res) => {
   store = loadStore();
-  res.json(store.guilds);
+  const output = {};
+
+  for (const [guildId, entry] of Object.entries(store.guilds)) {
+    output[guildId] = {
+      apiKey: entry.apiKey,
+      requiredPermission: entry.requiredPermission,
+      createdAt: entry.createdAt,
+      createdAtReadable: entry.createdAt ? new Date(entry.createdAt).toISOString() : null
+    };
+  }
+
+  res.json(output);
 });
 
 app.get('/validate', (req, res) => {
