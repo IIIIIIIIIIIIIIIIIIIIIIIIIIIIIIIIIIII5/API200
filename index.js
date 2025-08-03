@@ -128,9 +128,9 @@ async function registerCommandsForGuild(guildId) {
       Routes.applicationGuildCommands(process.env.CLIENT_ID, guildId),
       { body: [setupCommand.toJSON(), broadcastCommand.toJSON(), serversCommand.toJSON()] }
     );
-    console.log(`Registered commands for guild ${guildId}`);
+    console.log(`Created the commands for server ${guildId}`);
   } catch (err) {
-    console.error(`Failed to register commands for guild ${guildId}:`, err);
+    console.error(`Failed to created commands for server ${guildId}:`, err);
   }
 }
 
