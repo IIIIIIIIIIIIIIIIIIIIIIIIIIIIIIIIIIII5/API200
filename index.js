@@ -30,7 +30,7 @@ function saveStore(store) {
     fs.writeFileSync(tempPath, JSON.stringify(store, null, 2), { mode: 0o600 });
     fs.renameSync(tempPath, STORAGE_PATH);
   } catch (e) {
-    console.error('Failed to save store.json via atomic rename, attempting direct write:', e);
+    console.error('Atomic save failed, trying direct write:', e);
     try {
       fs.writeFileSync(STORAGE_PATH, JSON.stringify(store, null, 2), { mode: 0o600 });
     } catch (inner) {
@@ -43,13 +43,53 @@ function generateKey() {
   return crypto.randomBytes(24).toString('hex');
 }
 
+function extractKey(req) {
+  return req.header('x-api-key') || req.query.key;
+}
+
+function formatReadable(ts) {
+  if (!ts) return null;
+  const d = new Date(Number(ts));
+  const yyyy = d.getUTCFullYear();
+  const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(d.getUTCDate()).padStart(2, '0');
+  const hh = String(d.getUTCHours()).padStart(2, '0');
+  const min = String(d.getUTCMinutes()).padStart(2, '0');
+  const sec = String(d.getUTCSeconds()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd} ${hh}:${min}:${sec}`;
+}
+
+function requireBasicAuth(req, res, next) {
+  const auth = req.headers.authorization;
+  if (!auth || !auth.startsWith('Basic ')) {
+    res.setHeader('WWW-Authenticate', 'Basic realm="keys"');
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+  const b64 = auth.slice('Basic '.length);
+  let decoded;
+  try {
+    decoded = Buffer.from(b64, 'base64').toString('utf-8');
+  } catch {
+    return res.status(400).json({ error: 'Bad auth header' });
+  }
+  const [user, pass] = decoded.split(':');
+  if (
+    user === process.env.KEYS_USER &&
+    pass === process.env.KEYS_PASS
+  ) {
+    return next();
+  }
+  res.setHeader('WWW-Authenticate', 'Basic realm="keys"');
+  return res.status(403).json({ error: 'Forbidden' });
+}
+
 const app = express();
 app.use(cors());
 app.use(bodyParser.json());
 
 let store = loadStore();
 
-app.get('/keys', (req, res) => {
+app.get('/keys', requireBasicAuth, (req, res) => {
   store = loadStore();
   const output = {};
 
@@ -58,9 +98,7 @@ app.get('/keys', (req, res) => {
       apiKey: entry.apiKey,
       requiredPermission: entry.requiredPermission,
       createdAt: entry.createdAt,
-     createdAtReadable: entry.createdAt
-  ? new Date(entry.createdAt).toISOString().replace('T', ' ').replace(/\.\d+Z$/, '')
-  : null
+      createdAtReadable: entry.createdAt ? formatReadable(entry.createdAt) : null
     };
   }
 
@@ -68,8 +106,10 @@ app.get('/keys', (req, res) => {
 });
 
 app.get('/validate', (req, res) => {
-  const key = req.header('x-api-key') || req.query.key;
+  const key = extractKey(req);
   if (!key) return res.status(400).json({ error: 'Missing key' });
+
+  store = loadStore();
   const guildEntry = Object.values(store.guilds).find(g => g.apiKey === key);
   if (!guildEntry) return res.status(403).json({ error: 'Invalid API key' });
   return res.json({ valid: true, requiredPermission: guildEntry.requiredPermission || 'ManageGuild' });
@@ -77,7 +117,7 @@ app.get('/validate', (req, res) => {
 
 app.post('/send', (req, res) => {
   const { type, title, message } = req.body;
-  const key = req.header('x-api-key') || req.query.key;
+  const key = extractKey(req);
   if (!key) return res.status(400).json({ error: 'Missing API key' });
   if (!type || !title || !message) return res.status(400).json({ error: 'Missing fields' });
 
@@ -100,7 +140,7 @@ app.post('/send', (req, res) => {
 });
 
 app.get('/latest', (req, res) => {
-  const key = req.header('x-api-key') || req.query.key;
+  const key = extractKey(req);
   if (!key) return res.status(400).json({ error: 'Missing API key' });
 
   store = loadStore();
