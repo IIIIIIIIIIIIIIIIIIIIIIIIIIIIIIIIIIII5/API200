@@ -1,3 +1,5 @@
+require('dotenv').config();
+
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -29,11 +31,11 @@ const app = express();
 app.use(cors());
 app.use(bodyParser.json());
 
-const store = loadStore();
+let store = loadStore();
 
 app.get('/validate', (req, res) => {
   const key = req.header('x-api-key') || req.query.key;
-  if (!key || !store.guilds) return res.status(400).json({ error: 'Missing key' });
+  if (!key) return res.status(400).json({ error: 'Missing key' });
 
   const guildEntry = Object.values(store.guilds).find(g => g.apiKey === key);
   if (!guildEntry) return res.status(403).json({ error: 'Invalid API key' });
@@ -45,7 +47,8 @@ app.post('/send', (req, res) => {
   const key = req.header('x-api-key') || req.query.key;
   if (!key) return res.status(400).json({ error: 'Missing API key' });
   if (!type || !title || !message) return res.status(400).json({ error: 'Missing fields' });
-
+  
+  store = loadStore();
   const guildEntry = Object.values(store.guilds).find(g => g.apiKey === key);
   if (!guildEntry) return res.status(403).json({ error: 'Invalid API key' });
 
@@ -67,13 +70,13 @@ app.get('/latest', (req, res) => {
   const key = req.header('x-api-key') || req.query.key;
   if (!key) return res.status(400).json({ error: 'Missing API key' });
 
+  store = loadStore();
   if (!store.broadcasts[key]) return res.status(204).send();
   return res.json(store.broadcasts[key]);
 });
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`API server running on port ${PORT}`));
-
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
@@ -91,7 +94,7 @@ const broadcastCommand = new SlashCommandBuilder()
       .setRequired(true)
       .addChoices(
         { name: 'Message', value: 'Message' },
-        { name: 'Hint', value: 'Hint' },
+        { name: 'Hint', value: 'Hint' }
       ))
   .addStringOption(option =>
     option.setName('title')
@@ -104,30 +107,41 @@ const broadcastCommand = new SlashCommandBuilder()
 
 const serversCommand = new SlashCommandBuilder()
   .setName('servers')
-  .setDescription('Get number of active servers for a Roblox game.')
+  .setDescription('Get number of active public servers for a Roblox place.')
   .addStringOption(option =>
     option.setName('placeid')
       .setDescription('Roblox place ID or universe ID')
       .setRequired(true));
 
-
-client.once(Events.ClientReady, async () => {
+async function registerCommandsForGuild(guildId) {
   const rest = new REST({ version: '10' }).setToken(process.env.BOT_TOKEN);
   try {
-await rest.put(
-  Routes.applicationGuildCommands(process.env.CLIENT_ID, guildId),
-  { body: [syncCommand.toJSON(), broadcastCommand.toJSON(), serversCommand.toJSON()] }
-);
-    console.log('The commands are created.');
+    await rest.put(
+      Routes.applicationGuildCommands(process.env.CLIENT_ID, guildId),
+      { body: [syncCommand.toJSON(), broadcastCommand.toJSON(), serversCommand.toJSON()] }
+    );
+    console.log(`Registered commands for guild ${guildId}`);
   } catch (err) {
-    console.error('Failed to create the commands:', err);
+    console.error(`Failed to register commands for guild ${guildId}:`, err);
   }
+}
 
+client.once(Events.ClientReady, async () => {
   console.log(`Logged in as ${client.user.tag}`);
+
+  for (const [guildId] of client.guilds.cache) {
+    await registerCommandsForGuild(guildId);
+  }
+});
+
+client.on(Events.GuildCreate, guild => {
+  registerCommandsForGuild(guild.id);
 });
 
 client.on(Events.InteractionCreate, async interaction => {
   if (!interaction.isChatInputCommand()) return;
+
+  store = loadStore();
 
   const guildId = interaction.guildId;
   if (!guildId) return interaction.reply({ content: 'Must be used in a server.', ephemeral: true });
@@ -141,7 +155,10 @@ client.on(Events.InteractionCreate, async interaction => {
       saveStore(store);
     }
 
-    await interaction.reply({ content: `API Key for this server: \`${entry.apiKey}\`\nYou must add the key to your Roblox game.`, ephemeral: true });
+    await interaction.reply({
+      content: `API Key for this server: \`${entry.apiKey}\`\nYou must add the key to your Roblox game (use it as ?key=...).`,
+      ephemeral: true
+    });
     return;
   }
 
@@ -164,50 +181,50 @@ client.on(Events.InteractionCreate, async interaction => {
 
       if (!resp.ok) throw new Error('API error');
 
-      await interaction.reply({ content: `✅ Broadcast sent for this guild.\n**${type}**: ${title}`, ephemeral: false });
+      await interaction.reply({ content: `Announcement sent for this server.\n**${type}**: ${title}`, ephemeral: true });
     } catch (err) {
-      console.error('Failed broadcast:', err);
-      await interaction.reply({ content: 'Failed to send broadcast.', ephemeral: true });
+      console.error('Failed announcement:', err);
+      await interaction.reply({ content: 'Failed to send announcement.', ephemeral: true });
     }
     return;
   }
 
   if (interaction.commandName === 'servers') {
-  const placeId = interaction.options.getString('placeid');
+    const placeId = interaction.options.getString('placeid');
 
-  try {
-    let universeId = placeId;
-    
-    const placeInfoRes = await fetch(`https://games.roblox.com/v1/games/multiget-place-details?placeIds=${encodeURIComponent(placeId)}`);
-    if (placeInfoRes.ok) {
-      const placeInfo = await placeInfoRes.json();
-      if (Array.isArray(placeInfo) && placeInfo[0] && placeInfo[0].universeId) {
-        universeId = placeInfo[0].universeId;
+    try {
+      let universeId = placeId;
+
+      const placeInfoRes = await fetch(`https://games.roblox.com/v1/games/multiget-place-details?placeIds=${encodeURIComponent(placeId)}`);
+      if (placeInfoRes.ok) {
+        const placeInfo = await placeInfoRes.json();
+        if (Array.isArray(placeInfo) && placeInfo[0] && placeInfo[0].universeId) {
+          universeId = placeInfo[0].universeId;
+        }
       }
-    }
-    
-    const serversRes = await fetch(`https://games.roblox.com/v1/games/${encodeURIComponent(universeId)}/servers/Public?sortOrder=Asc&limit=1`);
-    if (!serversRes.ok) {
-      throw new Error(`Roblox API returned status ${serversRes.status}`);
-    }
-    const serversData = await serversRes.json();
 
-    let replyText = `Active server(s) for place ${placeId}: `;
-    if (serversData.data) {
-      replyText += `${serversData.data.length}`;
-      if (serversData.nextPageCursor) {
-        replyText += `+`;
-      }
-    } else {
-      replyText += `0`;
-    }
+      let total = 0;
+      let cursor = nil
+      do {
+        const url = new URL(`https://games.roblox.com/v1/games/${encodeURIComponent(universeId)}/servers/Public`);
+        url.searchParams.set('sortOrder', 'Asc');
+        url.searchParams.set('limit', '100');
+        if (cursor) url.searchParams.set('cursor', cursor);
 
-    await interaction.reply({ content: replyText, ephemeral: false });
-  } catch (err) {
-    console.error("Error fetching servers:", err);
-    await interaction.reply({ content: 'Failed to fetch server count.', ephemeral: true });
+        const pageRes = await fetch(url.toString());
+        if (!pageRes.ok) break;
+        const page = await pageRes.json();
+        total += (page.data || []).length;
+        cursor = page.nextPageCursor;
+      } while (cursor);
+
+      await interaction.reply({ content: `Total active public servers: ${total}` });
+    } catch (err) {
+      console.error('Error fetching servers:', err);
+      await interaction.reply({ content: 'Failed to fetch server count.', ephemeral: true });
+    }
+    return;
   }
-}
 });
 
 client.login(process.env.BOT_TOKEN);
