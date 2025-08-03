@@ -102,12 +102,21 @@ const broadcastCommand = new SlashCommandBuilder()
       .setDescription('Body')
       .setRequired(true));
 
+const serversCommand = new SlashCommandBuilder()
+  .setName('servers')
+  .setDescription('Get number of active servers for a Roblox game.')
+  .addStringOption(option =>
+    option.setName('placeid')
+      .setDescription('Roblox place ID or universe ID')
+      .setRequired(true));
+
+
 client.once(Events.ClientReady, async () => {
   const rest = new REST({ version: '10' }).setToken(process.env.BOT_TOKEN);
   try {
-   await rest.put(
-  Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID),
-  { body: [syncCommand.toJSON(), broadcastCommand.toJSON()] }
+await rest.put(
+  Routes.applicationGuildCommands(process.env.CLIENT_ID, guildId),
+  { body: [syncCommand.toJSON(), broadcastCommand.toJSON(), serversCommand.toJSON()] }
 );
     console.log('The commands are created.');
   } catch (err) {
@@ -162,6 +171,43 @@ client.on(Events.InteractionCreate, async interaction => {
     }
     return;
   }
+
+  if (interaction.commandName === 'servers') {
+  const placeId = interaction.options.getString('placeid');
+
+  try {
+    let universeId = placeId;
+    
+    const placeInfoRes = await fetch(`https://games.roblox.com/v1/games/multiget-place-details?placeIds=${encodeURIComponent(placeId)}`);
+    if (placeInfoRes.ok) {
+      const placeInfo = await placeInfoRes.json();
+      if (Array.isArray(placeInfo) && placeInfo[0] && placeInfo[0].universeId) {
+        universeId = placeInfo[0].universeId;
+      }
+    }
+    
+    const serversRes = await fetch(`https://games.roblox.com/v1/games/${encodeURIComponent(universeId)}/servers/Public?sortOrder=Asc&limit=1`);
+    if (!serversRes.ok) {
+      throw new Error(`Roblox API returned status ${serversRes.status}`);
+    }
+    const serversData = await serversRes.json();
+
+    let replyText = `Active server(s) for place ${placeId}: `;
+    if (serversData.data) {
+      replyText += `${serversData.data.length}`;
+      if (serversData.nextPageCursor) {
+        replyText += `+`;
+      }
+    } else {
+      replyText += `0`;
+    }
+
+    await interaction.reply({ content: replyText, ephemeral: false });
+  } catch (err) {
+    console.error("Error fetching servers:", err);
+    await interaction.reply({ content: 'Failed to fetch server count.', ephemeral: true });
+  }
+}
 });
 
 client.login(process.env.BOT_TOKEN);
