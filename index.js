@@ -11,16 +11,33 @@ const STORAGE_PATH = path.join(__dirname, 'store.json');
 
 function loadStore() {
   try {
-    return JSON.parse(fs.readFileSync(STORAGE_PATH, 'utf-8'));
-  } catch {
+    if (!fs.existsSync(STORAGE_PATH)) {
+      const initial = { guilds: {}, broadcasts: {} };
+      fs.writeFileSync(STORAGE_PATH, JSON.stringify(initial, null, 2), { mode: 0o600 });
+      return initial;
+    }
+    const raw = fs.readFileSync(STORAGE_PATH, 'utf-8');
+    return JSON.parse(raw);
+  } catch (e) {
+    console.error('Failed to load store.json, falling back to empty:', e);
     return { guilds: {}, broadcasts: {} };
   }
 }
 
 function saveStore(store) {
-  const tempPath = STORAGE_PATH + '.tmp';
-  fs.writeFileSync(tempPath, JSON.stringify(store, null, 2));
-  fs.renameSync(tempPath, STORAGE_PATH);
+  try {
+    const tempPath = STORAGE_PATH + '.tmp';
+    fs.writeFileSync(tempPath, JSON.stringify(store, null, 2), { mode: 0o600 });
+    // rename is atomic on most platforms
+    fs.renameSync(tempPath, STORAGE_PATH);
+  } catch (e) {
+    console.error('Failed to save store.json via atomic rename, attempting direct write:', e);
+    try {
+      fs.writeFileSync(STORAGE_PATH, JSON.stringify(store, null, 2), { mode: 0o600 });
+    } catch (inner) {
+      console.error('Direct write also failed:', inner);
+    }
+  }
 }
 
 function generateKey() {
