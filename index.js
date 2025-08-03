@@ -33,6 +33,11 @@ app.use(bodyParser.json());
 
 let store = loadStore();
 
+app.get('/keys', (req, res) => {
+  store = loadStore();
+  res.json(store.guilds);
+});
+
 app.get('/validate', (req, res) => {
   const key = req.header('x-api-key') || req.query.key;
   if (!key) return res.status(400).json({ error: 'Missing key' });
