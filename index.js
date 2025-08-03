@@ -60,7 +60,6 @@ app.post('/send', (req, res) => {
   store.broadcasts[key] = broadcast;
   saveStore(store);
 
-  console.log(`[API] Broadcast stored for key ${key}:`, broadcast);
   return res.json({ success: true });
 });
 
@@ -106,10 +105,10 @@ const broadcastCommand = new SlashCommandBuilder()
 client.once(Events.ClientReady, async () => {
   const rest = new REST({ version: '10' }).setToken(process.env.BOT_TOKEN);
   try {
-    await rest.put(
-      Routes.applicationGuildCommands(process.env.CLIENT_ID),
-      { body: [syncCommand.toJSON(), broadcastCommand.toJSON()] }
-    );
+   await rest.put(
+  Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID),
+  { body: [syncCommand.toJSON(), broadcastCommand.toJSON()] }
+);
     console.log('The commands are created.');
   } catch (err) {
     console.error('Failed to create the commands:', err);
