@@ -18,7 +18,9 @@ function loadStore() {
 }
 
 function saveStore(store) {
-  fs.writeFileSync(STORAGE_PATH, JSON.stringify(store, null, 2));
+  const tempPath = STORAGE_PATH + '.tmp';
+  fs.writeFileSync(tempPath, JSON.stringify(store, null, 2));
+  fs.renameSync(tempPath, STORAGE_PATH);
 }
 
 function generateKey() {
@@ -85,7 +87,7 @@ const setupCommand = new SlashCommandBuilder()
   .addStringOption(option =>
     option
       .setName('permission')
-      .setDescription('Discord permission required to use /broadcast and /servers')
+      .setDescription('Discord permission required to use /announce and /servers')
       .setRequired(true)
       .setAutocomplete(true)
   );
@@ -173,6 +175,7 @@ client.on(Events.InteractionCreate, async interaction => {
       });
     }
 
+    store = loadStore();
     let entry = store.guilds[guildId];
     if (!entry) {
       const newKey = generateKey();
