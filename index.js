@@ -132,7 +132,7 @@ client.on(Events.InteractionCreate, async interaction => {
       saveStore(store);
     }
 
-    await interaction.reply({ content: `API Key for this server: \`${entry.apiKey}\`\nYou must configure your Roblox game to use /latest with this key.`, ephemeral: true });
+    await interaction.reply({ content: `API Key for this server: \`${entry.apiKey}\`\nYou must add the key to your Roblox game.`, ephemeral: true });
     return;
   }
 
