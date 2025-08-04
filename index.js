@@ -56,7 +56,7 @@ function formatReadable(ts) {
   const hh = String(d.getUTCHours()).padStart(2, '0');
   const min = String(d.getUTCMinutes()).padStart(2, '0');
   const sec = String(d.getUTCSeconds()).padStart(2, '0');
-  return ${yyyy}-${mm}-${dd} ${hh}:${min}:${sec};
+  return `${yyyy}-${mm}-${dd} ${hh}:${min}:${sec}`;
 }
 
 function requireBasicAuth(req, res, next) {
@@ -149,7 +149,7 @@ app.get('/latest', (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(API server running on port ${PORT}));
+app.listen(PORT, () => console.log(`API server running on port ${PORT}`));
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
@@ -241,13 +241,13 @@ client.on(Events.InteractionCreate, async interaction => {
   if (interaction.commandName === 'setup') {
     const chosen = interaction.options.getString('permission');
 
-    if (!VALID_PERMS.includes(chosen)) {
-      const sample = ['ManageGuild', 'ManageMessages', 'KickMembers', 'BanMembers', 'Administrator'];
-      return interaction.reply({
-        content: Invalid permission \${chosen}\. Examples: ${sample.map(p => \${p}\).join(', ')}.,
-        ephemeral: true
-      });
-    }
+   if (!VALID_PERMS.includes(chosen)) {
+    const sample = ['ManageGuild', 'ManageMessages', 'KickMembers', 'BanMembers', 'Administrator'];
+    return interaction.reply({
+      content: `Invalid permission ${chosen}. Examples: ${sample.join(', ')}.`,
+      ephemeral: true
+    });
+  }
 
     store = loadStore();
     let entry = store.guilds[guildId];
@@ -264,7 +264,7 @@ client.on(Events.InteractionCreate, async interaction => {
     store.guilds[guildId] = entry;
     saveStore(store);
 
-    await interaction.reply({ content: API Key: \${entry.apiKey}\\nRequired permission to use announce/servers: \${entry.requiredPermission}\., ephemeral: true });
+    await interaction.reply({ content: `API Key: ${entry.apiKey}\nRequired permission to use announce/servers: ${entry.requiredPermission}.`, ephemeral: true });
     return;
   }
 
@@ -308,7 +308,7 @@ client.on(Events.InteractionCreate, async interaction => {
     try {
       let universeId = placeId;
 
-      const placeInfoRes = await fetch(https://games.roblox.com/v1/games/multiget-place-details?placeIds=${encodeURIComponent(placeId)});
+      const placeInfoRes = await fetch(`https://games.roblox.com/v1/games/multiget-place-details?placeIds=${encodeURIComponent(placeId)}`);
       if (placeInfoRes.ok) {
         const placeInfo = await placeInfoRes.json();
         if (Array.isArray(placeInfo) && placeInfo[0] && placeInfo[0].universeId) {
@@ -319,7 +319,7 @@ client.on(Events.InteractionCreate, async interaction => {
       let total = 0;
       let cursor = null;
       do {
-        const url = new URL(https://games.roblox.com/v1/games/${encodeURIComponent(universeId)}/servers/Public);
+        const url = new URL(`https://games.roblox.com/v1/games/${encodeURIComponent(universeId)}/servers/Public`);
         url.searchParams.set('sortOrder', 'Asc');
         url.searchParams.set('limit', '100');
         if (cursor) url.searchParams.set('cursor', cursor);
