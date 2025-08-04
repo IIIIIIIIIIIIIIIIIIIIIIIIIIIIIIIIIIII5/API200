@@ -6,7 +6,7 @@ const cors = require('cors');
 const bodyParser = require('body-parser');
 const fetch = require('node-fetch');
 const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes, Events, PermissionFlagsBits } = require('discord.js');
-const sqlite3 = require('sqlite3');
+const sqlite3 = require('better-sqilte3');
 
 const DB_PATH = path.join(__dirname, 'store.sqlite');
 
