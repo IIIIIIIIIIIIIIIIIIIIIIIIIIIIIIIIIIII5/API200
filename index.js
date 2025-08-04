@@ -424,7 +424,7 @@ client.on(Events.InteractionCreate, async interaction => {
     store.kicks[entry.apiKey] = kickPayload;
     saveStore(store);
 
-    await interaction.reply({ content: `Kick request sent for user ${username}.`, ephemeral: true });
+    await interaction.reply({ content: `Kicked user ${username}.`, ephemeral: true });
     return;
   }
 });
