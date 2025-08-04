@@ -70,13 +70,15 @@ function requireBasicAuth(req, res, next) {
 }
 
 async function loadStore() {
-  const snapshot = await db.ref('/store').once('value');
-  const val = snapshot.val();
-  return val || { guilds: {}, broadcasts: {}, kicks: {} };
+  const doc = await db.collection('store').doc('data').get();
+  if (!doc.exists) {
+    return { guilds: {}, broadcasts: {}, kicks: {} };
+  }
+  return doc.data();
 }
 
 async function saveStore(store) {
-  await db.ref('/store').set(store);
+  await db.collection('store').doc('data').set(store);
 }
 
 const app = express();
