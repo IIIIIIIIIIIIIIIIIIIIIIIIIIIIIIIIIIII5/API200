@@ -133,28 +133,31 @@ app.post('/kick', async (req, res) => {
   if (!guildEntry) return res.status(403).json({ error: 'Invalid API key' });
 
   let targetUserId;
- try {
-  const resp = await fetch('https://users.roblox.com/v1/usernames/users', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      usernames: [targetUsername],
-      excludeBannedUsers: false
-    })
-  });
-  if (!resp.ok) throw new Error('Roblox API failure');
-  const data = await resp.json();
-  if (
-    !data or
-    !Array.isArray(data.data) ||
-    data.data.length === 0 ||
-    typeof data.data[0].id !== 'number'
-  ) {
-    return res.status(404).json({ error: 'Roblox username not found' });
-  }
-  targetUserId = data.data[0].id;
-} catch (e) {
-  return res.status(500).json({ error: 'Failed to find Roblox username' });
+  try {
+    const resp = await fetch('https://users.roblox.com/v1/usernames/users', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        usernames: [targetUsername],
+        excludeBannedUsers: false
+      })
+    });
+    if (!resp.ok) {
+      return res.status(500).json({ error: 'Roblox API failure' });
+    }
+    const data = await resp.json();
+    if (
+      !data ||
+      !Array.isArray(data.data) ||
+      data.data.length === 0 ||
+      typeof data.data[0].id !== 'number'
+    ) {
+      return res.status(404).json({ error: 'Roblox username not found' });
+    }
+    targetUserId = data.data[0].id;
+  } catch (e) {
+    console.error('Username lookup error:', e);
+    return res.status(500).json({ error: 'Failed to find Roblox username' });
   }
 
   const kickPayload = {
