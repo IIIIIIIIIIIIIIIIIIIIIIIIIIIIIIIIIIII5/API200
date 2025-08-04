@@ -209,7 +209,7 @@ async function registerCommandsForGuild(guildId) {
 }
 
 client.once(Events.ClientReady, async () => {
-  console.log(Logged in as ${client.user.tag});
+  console.log(`Logged in as ${client.user.tag}`);
   for (const [guildId] of client.guilds.cache) {
     await registerCommandsForGuild(guildId);
   }
@@ -295,7 +295,7 @@ client.on(Events.InteractionCreate, async interaction => {
       });
 
       if (!resp.ok) throw new Error('API error');
-      await interaction.reply({ content: Announcement sent.\n**${type}**: ${title}, ephemeral: true });
+      await interaction.reply({ content: `Announcement sent.\n**${type}**: ${title}`, ephemeral: true });
     } catch (err) {
       console.error('Failed announcement:', err);
       await interaction.reply({ content: 'Failed to send announcement.', ephemeral: true });
