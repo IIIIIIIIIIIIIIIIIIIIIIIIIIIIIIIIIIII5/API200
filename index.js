@@ -265,7 +265,7 @@ const broadcastCommand = new SlashCommandBuilder()
       Routes.applicationCommands(process.env.CLIENT_ID),
       { body: [setupCommand.toJSON(), broadcastCommand.toJSON()] }
     );
-    console.log('Slash commands registered.');
+    console.log('Commands created.');
   } catch (error) {
     console.error(error);
   }
