@@ -8,11 +8,17 @@ const fetch = require('node-fetch');
 const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes, Events, PermissionFlagsBits, EmbedBuilder } = require('discord.js');
 const admin = require('firebase-admin');
 
-const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
+const serviceAccount = {
+  project_id: process.env.PROJECTID,
+  client_email: process.env.CLIENTEMAIL,
+  private_key: process.env.PRIVATEKEY,
+};
+
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
-  databaseURL: process.env.FIREBASE_DATABASE_URL
+  databaseURL: process.env.DATABASE,
 });
+
 const db = admin.database();
 
 const token = process.env.BOT_TOKEN;
