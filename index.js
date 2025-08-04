@@ -20,7 +20,7 @@ admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
 });
 
-const db = admin.database();
+const db = admin.firestore();
 
 const token = process.env.BOT_TOKEN;
 console.log("Token is:", token ? "set" : "NOT set");
