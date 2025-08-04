@@ -16,7 +16,6 @@ const serviceAccount = {
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
-  databaseURL: process.env.DATABASE,
 });
 
 const db = admin.database();
