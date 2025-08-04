@@ -184,23 +184,37 @@ const broadcastCommand = new SlashCommandBuilder()
       .setRequired(true))
   .addStringOption(option =>
     option.setName('message')
-      .setDescription('Body')
+      .setDescription('Message')
       .setRequired(true));
 
 const serversCommand = new SlashCommandBuilder()
   .setName('servers')
-  .setDescription('Get the number of active public servers for a Roblox place.')
+  .setDescription('Get the number of active servers for a game.')
   .addStringOption(option =>
     option.setName('placeid')
-      .setDescription('Roblox place ID or universe ID')
+      .setDescription('Roblox place ID')
       .setRequired(true));
+
+const kickCommand = new SlashCommandBuilder()
+  .setName('kick')
+  .setDescription('Kick a user from the server')
+  .addUserOption(option =>
+    option
+      .setName('user')
+      .setDescription('User to kick')
+      .setRequired(true))
+  .addStringOption(option =>
+    option
+      .setName('reason')
+      .setDescription('Reason for the kick')
+      .setRequired(false));
 
 async function registerCommandsForGuild(guildId) {
   const rest = new REST({ version: '10' }).setToken(process.env.BOT_TOKEN);
   try {
     await rest.put(
       Routes.applicationGuildCommands(process.env.CLIENT_ID, guildId),
-      { body: [setupCommand.toJSON(), broadcastCommand.toJSON(), serversCommand.toJSON()] }
+      { body: [setupCommand.toJSON(), broadcastCommand.toJSON(), serversCommand.toJSON(), kickCommand.toJSON()] }
     );
     console.log(`Created the commands for server ${guildId}`);
   } catch (err) {
@@ -303,6 +317,36 @@ client.on(Events.InteractionCreate, async interaction => {
     }
     return;
   }
+
+  if (interaction.commandName === 'kick') {
+  const target = interaction.options.getUser('user');
+  const reason = interaction.options.getString('reason');
+  const requiredPermForKick = 'KickMembers';
+
+  const hasPermission = interaction.member?.permissions?.has(PermissionFlagsBits[requiredPermForKick]) || false;
+  if (!hasPermission) {
+    return interaction.reply({ content: `You do not have the required permission (${requiredPermForKick}) to use this command.`, ephemeral: true });
+  }
+
+  const member = interaction.guild?.members.cache.get(target.id) || await interaction.guild?.members.fetch(target.id).catch(() => null);
+  if (!member) {
+    return interaction.reply({ content: 'Could not find that member in this server.', ephemeral: true });
+  }
+
+  if (member.roles.highest.position >= interaction.member.roles.highest.position && interaction.user.id !== interaction.guild?.ownerId) {
+    return interaction.reply({ content: 'You cannot kick a member with an equal or higher role than you.', ephemeral: true });
+  }
+
+  try {
+    await member.kick(reason);
+    await interaction.reply({ content: `Kicked ${target.tag}. Reason: ${reason}`, ephemeral: false });
+  } catch (err) {
+    console.error('Failed to kick member:', err);
+    await interaction.reply({ content: 'Failed to kick the member. Do I have sufficient permissions?', ephemeral: true });
+  }
+
+  return;
+}
 
   if (interaction.commandName === 'servers') {
     const placeId = interaction.options.getString('placeid');
