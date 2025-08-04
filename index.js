@@ -199,11 +199,11 @@ const VALID_PERMS = Object.keys(PermissionFlagsBits);
 
 const setupCommand = new SlashCommandBuilder()
   .setName('setup')
-  .setDescription('Generate/view this server’s API key and choose required permission for broadcasts')
+  .setDescription('Generate/view this server’s API key and choose the required permission for commands')
   .addStringOption(option =>
     option
       .setName('permission')
-      .setDescription('Discord permission required to use /announce and /servers')
+      .setDescription('Discord permission required to use commands')
       .setRequired(true)
       .setAutocomplete(true)
   );
