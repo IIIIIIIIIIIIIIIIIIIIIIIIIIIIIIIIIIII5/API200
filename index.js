@@ -245,68 +245,38 @@ const kickCommand = new SlashCommandBuilder()
   .addStringOption(option =>
     option
       .setName('reason')
-      .setDescription('Reason for the kick')
-      .setRequired(false));
+      .setDescription('Reason for kick'));
 
-async function registerCommandsForGuild(guildId) {
-  const rest = new REST({ version: '10' }).setToken(process.env.BOT_TOKEN);
+const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
+
+(async () => {
   try {
     await rest.put(
-      Routes.applicationGuildCommands(process.env.CLIENT_ID, guildId),
+      Routes.applicationCommands(process.env.DISCORD_CLIENT_ID),
       { body: [setupCommand.toJSON(), broadcastCommand.toJSON(), serversCommand.toJSON(), kickCommand.toJSON()] }
     );
-    console.log(`Created the commands for server ${guildId}`);
-  } catch (err) {
-    console.error(`Failed to created commands for server ${guildId}:`, err);
+    console.log('Slash commands registered.');
+  } catch (error) {
+    console.error('Failed to register commands:', error);
   }
-}
+})();
 
-client.once(Events.ClientReady, async () => {
-  console.log(`Logged in as ${client.user.tag}`);
-  for (const [guildId] of client.guilds.cache) {
-    await registerCommandsForGuild(guildId);
-  }
+client.once(Events.ClientReady, () => {
+  console.log('Discord client ready!');
 });
-
-client.on(Events.GuildCreate, guild => {
-  registerCommandsForGuild(guild.id);
-});
-
-const embed = new EmbedBuilder()
-  .setTitle('Setup Complete')
-  .setColor(0x00FF00)
-  .addFields(
-    { name: 'API Key', value: `\`${entry.apiKey}\``, inline: false },
-    { name: 'Required Permission', value: `\`${entry.requiredPermission}\``, inline: true },
-    { name: 'Created At', value: `<t:${Math.floor(entry.createdAt / 1000)}:F>`, inline: true }
-  )
 
 client.on(Events.InteractionCreate, async interaction => {
-  if (interaction.isAutocomplete()) {
-    if (interaction.commandName === 'setup') {
-      const focused = interaction.options.getFocused();
-      const suggestions = VALID_PERMS
-        .filter(p => p.toLowerCase().includes(focused.toLowerCase()))
-        .slice(0, 25)
-        .map(p => ({ name: p, value: p }));
-      await interaction.respond(suggestions);
-    }
-    return;
-  }
-
   if (!interaction.isChatInputCommand()) return;
 
-  store = loadStore();
   const guildId = interaction.guildId;
-  if (!guildId) return interaction.reply({ content: 'Must be used in a server.', ephemeral: true });
 
   if (interaction.commandName === 'setup') {
     const chosen = interaction.options.getString('permission');
 
-   if (!VALID_PERMS.includes(chosen)) {
-    const sample = ['ManageGuild', 'ManageMessages', 'KickMembers', 'BanMembers', 'Administrator'];
-    return interaction.reply({ content: `Invalid permission ${chosen}. Examples: ${sample.join(', ')}.`, ephemeral: true });
-  }
+    if (!VALID_PERMS.includes(chosen)) {
+      const sample = ['ManageGuild', 'ManageMessages', 'KickMembers', 'BanMembers', 'Administrator'];
+      return interaction.reply({ content: `Invalid permission ${chosen}. Examples: ${sample.join(', ')}.`, ephemeral: true });
+    }
 
     store = loadStore();
     let entry = store.guilds[guildId];
@@ -323,22 +293,17 @@ client.on(Events.InteractionCreate, async interaction => {
     store.guilds[guildId] = entry;
     saveStore(store);
 
+    const embed = new EmbedBuilder()
+      .setTitle('Setup Complete')
+      .setColor(0x00FF00)
+      .addFields(
+        { name: 'API Key', value: `\`${entry.apiKey}\``, inline: false },
+        { name: 'Required Permission', value: `\`${entry.requiredPermission}\``, inline: true },
+        { name: 'Created At', value: `<t:${Math.floor(entry.createdAt / 1000)}:F>`, inline: true }
+      );
+
     await interaction.reply({ embeds: [embed], ephemeral: true });
     return;
-  }
-
-  const guildEntry = store.guilds[guildId];
-  if (!guildEntry && (interaction.commandName === 'announce' || interaction.commandName === 'servers')) {
-    return interaction.reply({ content: 'This server is not set up. Run /setup first.', ephemeral: true });
-  }
-
-  const requiredPerm = guildEntry?.requiredPermission || 'ManageGuild';
-  const hasPermission = interaction.member.permissions
-    ? interaction.member.permissions.has(PermissionFlagsBits[requiredPerm])
-    : false;
-
-  if ((interaction.commandName === 'announce' || interaction.commandName === 'servers') && !hasPermission) {
-    return interaction.reply({ content: `You do not have the required permission (\${requiredPerm}\) to use this command.`, ephemeral: true });
   }
 
   if (interaction.commandName === 'announce') {
@@ -346,87 +311,86 @@ client.on(Events.InteractionCreate, async interaction => {
     const title = interaction.options.getString('title');
     const message = interaction.options.getString('message');
 
-    try {
-     const resp = await fetch(`${process.env.API_URL}/send?key=${encodeURIComponent(guildEntry.apiKey)}`, {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ type, title, message })
-});
-
-
-      if (!resp.ok) throw new Error('API error');
-      await interaction.reply({ content: `Announcement sent.\n**${type}**: ${title}`, ephemeral: true });
-    } catch (err) {
-      console.error('Failed announcement:', err);
-      await interaction.reply({ content: 'Failed to send announcement.', ephemeral: true });
+    store = loadStore();
+    const entry = store.guilds[guildId];
+    if (!entry) {
+      return interaction.reply({ content: 'This server has not been setup yet. Use /setup first.', ephemeral: true });
     }
+
+    if (!interaction.member.permissions.has(PermissionFlagsBits[entry.requiredPermission])) {
+      return interaction.reply({ content: `You need the permission ${entry.requiredPermission} to send announcements.`, ephemeral: true });
+    }
+
+    store.broadcasts[entry.apiKey] = {
+      id: Date.now().toString(),
+      type,
+      title,
+      message,
+      timestamp: Date.now()
+    };
+    saveStore(store);
+
+    await interaction.reply({ content: 'Announcement sent.', ephemeral: true });
     return;
   }
-
-if (interaction.commandName === 'kick') {
-  const targetUsername = interaction.options.getString('username');
-  const reason = interaction.options.getString('reason') || 'No reason provided';
-  const requiredPermForKick = 'KickMembers';
-
-  const hasPermission = interaction.member?.permissions?.has(PermissionFlagsBits[requiredPermForKick]) || false;
-  if (!hasPermission) {
-    return interaction.reply({ content: `You do not have the required permission (${requiredPermForKick}) to use this command.`, ephemeral: true });
-  }
-
-  try {
-    const resp = await fetch(`${process.env.API_URL}/kick?key=${encodeURIComponent(store.guilds[interaction.guildId].apiKey)}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ targetUsername, reason }),
-    });
-
-    if (!resp.ok) {
-      const err = await resp.json();
-      return interaction.reply({ content: `Failed to kick: ${err.error || 'Unknown error'}`, ephemeral: true });
-    }
-
-    await interaction.reply({ content: `Roblox player **${targetUsername}** has been kicked.\nReason: ${reason}`, ephemeral: true });
-  } catch (err) {
-    console.error('Kick command failed:', err);
-    await interaction.reply({ content: 'Failed to send kick request.', ephemeral: true });
-  }
-}
 
   if (interaction.commandName === 'servers') {
     const placeId = interaction.options.getString('placeid');
-    try {
-      let universeId = placeId;
 
-      const placeInfoRes = await fetch(`https://games.roblox.com/v1/games/multiget-place-details?placeIds=${encodeURIComponent(placeId)}`);
-      if (placeInfoRes.ok) {
-        const placeInfo = await placeInfoRes.json();
-        if (Array.isArray(placeInfo) && placeInfo[0] && placeInfo[0].universeId) {
-          universeId = placeInfo[0].universeId;
-        }
+    try {
+      const resp = await fetch(`https://games.roblox.com/v1/games/${placeId}/servers/Public?sortOrder=Asc&limit=100`);
+      const data = await resp.json();
+      if (!data || !data.data) {
+        return interaction.reply({ content: 'Failed to get servers data.', ephemeral: true });
       }
 
-      let total = 0;
-      let cursor = null;
-      do {
-        const url = new URL(`https://games.roblox.com/v1/games/${encodeURIComponent(universeId)}/servers/Public`);
-        url.searchParams.set('sortOrder', 'Asc');
-        url.searchParams.set('limit', '100');
-        if (cursor) url.searchParams.set('cursor', cursor);
-
-        const pageRes = await fetch(url.toString());
-        if (!pageRes.ok) break;
-        const page = await pageRes.json();
-        total += (page.data || []).length;
-        cursor = page.nextPageCursor;
-      } while (cursor);
-
-      await interaction.reply({ content: `Total active servers: ${total}` });
-    } catch (err) {
-      console.error('Error fetching servers:', err);
-      await interaction.reply({ content: 'Failed to fetch server count.', ephemeral: true });
+      const count = data.data.length;
+      await interaction.reply({ content: `There are currently ${count} public servers for place ID ${placeId}.`, ephemeral: true });
+    } catch (e) {
+      await interaction.reply({ content: 'Error fetching servers.', ephemeral: true });
     }
+    return;
+  }
+
+  if (interaction.commandName === 'kick') {
+    const username = interaction.options.getString('username');
+    const reason = interaction.options.getString('reason') || 'No reason provided';
+
+    store = loadStore();
+    const entry = store.guilds[guildId];
+    if (!entry) {
+      return interaction.reply({ content: 'This server has not been setup yet. Use /setup first.', ephemeral: true });
+    }
+
+    if (!interaction.member.permissions.has(PermissionFlagsBits[entry.requiredPermission])) {
+      return interaction.reply({ content: `You need the permission ${entry.requiredPermission} to kick players.`, ephemeral: true });
+    }
+
+    let userId;
+    try {
+      const resp = await fetch(`https://api.roblox.com/users/get-by-username?username=${encodeURIComponent(username)}`);
+      const data = await resp.json();
+      if (!data || !data.Id) {
+        return interaction.reply({ content: `Roblox user ${username} not found.`, ephemeral: true });
+      }
+      userId = data.Id;
+    } catch {
+      return interaction.reply({ content: 'Failed to look up Roblox user.', ephemeral: true });
+    }
+
+    const kickPayload = {
+      id: Date.now().toString(),
+      targetUserId: String(userId),
+      reason,
+      timestamp: Date.now(),
+    };
+
+    store.kicks[entry.apiKey] = kickPayload;
+    saveStore(store);
+
+    await interaction.reply({ content: `Kick request sent for user ${username}.`, ephemeral: true });
     return;
   }
 });
 
-client.login(process.env.BOT_TOKEN);
+client.login(process.env.DISCORD_TOKEN);
