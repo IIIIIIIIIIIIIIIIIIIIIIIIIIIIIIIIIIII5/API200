@@ -117,8 +117,13 @@ app.get('/kick/latest', (req, res) => {
   if (!key) return res.status(400).json({ error: 'Missing API key' });
 
   store = loadStore();
-  if (!store.kicks[key]) return res.status(204).send();
-  return res.json(store.kicks[key]);
+  const payload = store.kicks[key];
+  if (!payload) return res.status(204).send();
+
+  delete store.kicks[key];
+  saveStore(store);
+
+  return res.json(payload);
 });
 
 app.get('/validate', (req, res) => {
