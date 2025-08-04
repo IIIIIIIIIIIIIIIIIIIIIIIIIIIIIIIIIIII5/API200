@@ -8,12 +8,12 @@ const fetch = require('node-fetch');
 const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes, Events, PermissionFlagsBits, EmbedBuilder } = require('discord.js');
 const admin = require('firebase-admin');
 
-const privateKey = process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n');
+const privateKey = process.env.PRIVATEKEY.replace(/\\n/g, '\n');
 
 const serviceAccount = {
   project_id: process.env.PROJECTID,
   client_email: process.env.CLIENTEMAIL,
-  private_key: process.env.PRIVATEKEY.replace(/\\n/g, '\n'),
+  private_key: privateKey,
 };
 
 admin.initializeApp({
