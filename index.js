@@ -30,7 +30,7 @@ function saveStore(store) {
     fs.writeFileSync(tempPath, JSON.stringify(store, null, 2), { mode: 0o600 });
     fs.renameSync(tempPath, STORAGE_PATH);
   } catch (e) {
-    console.error('Atomic save failed, trying direct write:', e);
+    console.error('Save failed, trying direct write:', e);
     try {
       fs.writeFileSync(STORAGE_PATH, JSON.stringify(store, null, 2), { mode: 0o600 });
     } catch (inner) {
