@@ -332,7 +332,7 @@ client.on(Events.InteractionCreate, async interaction => {
         cursor = page.nextPageCursor;
       } while (cursor);
 
-      await interaction.reply({ content: Total active servers: ${total} });
+      await interaction.reply({ content: `Total active servers: ${total}` });
     } catch (err) {
       console.error('Error fetching servers:', err);
       await interaction.reply({ content: 'Failed to fetch server count.', ephemeral: true });
