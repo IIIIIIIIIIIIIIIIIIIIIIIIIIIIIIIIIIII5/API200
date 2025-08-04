@@ -242,9 +242,8 @@ const broadcastCommand = new SlashCommandBuilder()
       .setDescription('Type of message')
       .setRequired(true)
       .addChoices(
-        { name: 'announcement', value: 'announcement' },
-        { name: 'alert', value: 'alert' },
-        { name: 'broadcast', value: 'broadcast' },
+        { name: 'hint', value: 'hint' },
+        { name: 'message', value: 'message' }
       )
   )
   .addStringOption(option =>
@@ -258,6 +257,22 @@ const broadcastCommand = new SlashCommandBuilder()
       .setName('message')
       .setDescription('Message body')
       .setRequired(true)
+  );
+
+const kickCommand = new SlashCommandBuilder()
+  .setName('kick')
+  .setDescription('Queue a Roblox user to be kicked in-game')
+  .addStringOption(option =>
+    option
+      .setName('username')
+      .setDescription('Roblox username to kick')
+      .setRequired(true)
+  )
+  .addStringOption(option =>
+    option
+      .setName('reason')
+      .setDescription('Reason for kick')
+      .setRequired(false)
   );
 
 (async () => {
