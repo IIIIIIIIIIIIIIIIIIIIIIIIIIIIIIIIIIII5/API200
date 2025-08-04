@@ -6,38 +6,34 @@ const cors = require('cors');
 const bodyParser = require('body-parser');
 const fetch = require('node-fetch');
 const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes, Events, PermissionFlagsBits } = require('discord.js');
+const sqlite3 = require('sqlite3');
 
-const STORAGE_PATH = path.join(__dirname, 'store.json');
+const DB_PATH = path.join(__dirname, 'store.sqlite');
 
-function loadStore() {
-  try {
-    if (!fs.existsSync(STORAGE_PATH)) {
-      const initial = { guilds: {}, broadcasts: {} };
-      fs.writeFileSync(STORAGE_PATH, JSON.stringify(initial, null, 2), { mode: 0o600 });
-      return initial;
-    }
-    const raw = fs.readFileSync(STORAGE_PATH, 'utf-8');
-    return JSON.parse(raw);
-  } catch (e) {
-    console.error('Failed to load store.json, falling back to empty:', e);
-    return { guilds: {}, broadcasts: {} };
-  }
-}
+const db = new sqlite3.Database(DB_PATH, (err) => {
+  if (err) console.error("SQLite open error:", err);
+});
 
-function saveStore(store) {
-  try {
-    const tempPath = STORAGE_PATH + '.tmp';
-    fs.writeFileSync(tempPath, JSON.stringify(store, null, 2), { mode: 0o600 });
-    fs.renameSync(tempPath, STORAGE_PATH);
-  } catch (e) {
-    console.error('Atomic save failed, trying direct write:', e);
-    try {
-      fs.writeFileSync(STORAGE_PATH, JSON.stringify(store, null, 2), { mode: 0o600 });
-    } catch (inner) {
-      console.error('Direct write also failed:', inner);
-    }
-  }
-}
+db.serialize(() => {
+  db.run(`
+    CREATE TABLE IF NOT EXISTS guilds (
+      guildId TEXT PRIMARY KEY,
+      apiKey TEXT UNIQUE,
+      requiredPermission TEXT,
+      createdAt INTEGER
+    )
+  `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS broadcasts (
+      apiKey TEXT PRIMARY KEY,
+      id TEXT,
+      type TEXT,
+      title TEXT,
+      message TEXT,
+      timestamp INTEGER
+    )
+  `);
+});
 
 function generateKey() {
   return crypto.randomBytes(24).toString('hex');
@@ -45,6 +41,72 @@ function generateKey() {
 
 function extractKey(req) {
   return req.header('x-api-key') || req.query.key;
+}
+
+function getGuildByApiKey(apiKey) {
+  return new Promise((resolve, reject) => {
+    db.get(`SELECT * FROM guilds WHERE apiKey = ?`, [apiKey], (err, row) => {
+      if (err) return reject(err);
+      resolve(row);
+    });
+  });
+}
+
+function getGuildEntry(guildId) {
+  return new Promise((resolve, reject) => {
+    db.get(`SELECT * FROM guilds WHERE guildId = ?`, [guildId], (err, row) => {
+      if (err) return reject(err);
+      resolve(row);
+    });
+  });
+}
+
+function upsertGuild(guildId, apiKey, requiredPermission) {
+  return new Promise((resolve, reject) => {
+    db.run(
+      `
+      INSERT INTO guilds(guildId, apiKey, requiredPermission, createdAt)
+      VALUES(?,?,?,?)
+      ON CONFLICT(guildId) DO UPDATE SET requiredPermission=excluded.requiredPermission
+    `,
+      [guildId, apiKey, requiredPermission, Date.now()],
+      function (err) {
+        if (err) return reject(err);
+        resolve();
+      }
+    );
+  });
+}
+
+function setBroadcast(apiKey, broadcast) {
+  return new Promise((resolve, reject) => {
+    db.run(
+      `
+      INSERT INTO broadcasts(apiKey,id,type,title,message,timestamp)
+      VALUES(?,?,?,?,?,?)
+      ON CONFLICT(apiKey) DO UPDATE SET
+        id=excluded.id,
+        type=excluded.type,
+        title=excluded.title,
+        message=excluded.message,
+        timestamp=excluded.timestamp
+    `,
+      [apiKey, broadcast.id, broadcast.type, broadcast.title, broadcast.message, broadcast.timestamp],
+      function (err) {
+        if (err) return reject(err);
+        resolve();
+      }
+    );
+  });
+}
+
+function getBroadcast(apiKey) {
+  return new Promise((resolve, reject) => {
+    db.get(`SELECT * FROM broadcasts WHERE apiKey = ?`, [apiKey], (err, row) => {
+      if (err) return reject(err);
+      resolve(row);
+    });
+  });
 }
 
 function formatReadable(ts) {
@@ -73,10 +135,7 @@ function requireBasicAuth(req, res, next) {
     return res.status(400).json({ error: 'Bad auth header' });
   }
   const [user, pass] = decoded.split(':');
-  if (
-    user === process.env.KEYS_USER &&
-    pass === process.env.KEYS_PASS
-  ) {
+  if (user === process.env.KEYS_USER && pass === process.env.KEYS_PASS) {
     return next();
   }
   res.setHeader('WWW-Authenticate', 'Basic realm="keys"');
@@ -87,65 +146,66 @@ const app = express();
 app.use(cors());
 app.use(bodyParser.json());
 
-let store = loadStore();
-
-app.get('/keys', requireBasicAuth, (req, res) => {
-  store = loadStore();
-  const output = {};
-
-  for (const [guildId, entry] of Object.entries(store.guilds)) {
-    output[guildId] = {
-      apiKey: entry.apiKey,
-      requiredPermission: entry.requiredPermission,
-      createdAt: entry.createdAt,
-      createdAtReadable: entry.createdAt ? formatReadable(entry.createdAt) : null
-    };
-  }
-
-  res.json(output);
+app.get('/keys', requireBasicAuth, async (req, res) => {
+  db.all(`SELECT * FROM guilds`, [], (err, rows) => {
+    if (err) return res.status(500).json({ error: 'DB error' });
+    const out = {};
+    for (const entry of rows) {
+      out[entry.guildId] = {
+        apiKey: entry.apiKey,
+        requiredPermission: entry.requiredPermission,
+        createdAt: entry.createdAt,
+        createdAtReadable: formatReadable(entry.createdAt),
+      };
+    }
+    res.json(out);
+  });
 });
 
-app.get('/validate', (req, res) => {
+app.get('/validate', async (req, res) => {
   const key = extractKey(req);
   if (!key) return res.status(400).json({ error: 'Missing key' });
-
-  store = loadStore();
-  const guildEntry = Object.values(store.guilds).find(g => g.apiKey === key);
-  if (!guildEntry) return res.status(403).json({ error: 'Invalid API key' });
-  return res.json({ valid: true, requiredPermission: guildEntry.requiredPermission || 'ManageGuild' });
+  try {
+    const guildEntry = await getGuildByApiKey(key);
+    if (!guildEntry) return res.status(403).json({ error: 'Invalid API key' });
+    return res.json({ valid: true, requiredPermission: guildEntry.requiredPermission || 'ManageGuild' });
+  } catch (e) {
+    return res.status(500).json({ error: 'Internal' });
+  }
 });
 
-app.post('/send', (req, res) => {
+app.post('/send', async (req, res) => {
   const { type, title, message } = req.body;
   const key = extractKey(req);
   if (!key) return res.status(400).json({ error: 'Missing API key' });
   if (!type || !title || !message) return res.status(400).json({ error: 'Missing fields' });
-
-  store = loadStore();
-  const guildEntry = Object.values(store.guilds).find(g => g.apiKey === key);
-  if (!guildEntry) return res.status(403).json({ error: 'Invalid API key' });
-
-  const broadcast = {
-    id: Date.now().toString(),
-    type,
-    title,
-    message,
-    timestamp: Date.now(),
-  };
-
-  store.broadcasts[key] = broadcast;
-  saveStore(store);
-
-  return res.json({ success: true });
+  try {
+    const guildEntry = await getGuildByApiKey(key);
+    if (!guildEntry) return res.status(403).json({ error: 'Invalid API key' });
+    const broadcast = {
+      id: Date.now().toString(),
+      type,
+      title,
+      message,
+      timestamp: Date.now(),
+    };
+    await setBroadcast(key, broadcast);
+    return res.json({ success: true });
+  } catch (e) {
+    return res.status(500).json({ error: 'Internal' });
+  }
 });
 
-app.get('/latest', (req, res) => {
+app.get('/latest', async (req, res) => {
   const key = extractKey(req);
   if (!key) return res.status(400).json({ error: 'Missing API key' });
-
-  store = loadStore();
-  if (!store.broadcasts[key]) return res.status(204).send();
-  return res.json(store.broadcasts[key]);
+  try {
+    const broadcast = await getBroadcast(key);
+    if (!broadcast) return res.status(204).send();
+    return res.json(broadcast);
+  } catch (e) {
+    return res.status(500).json({ error: 'Internal' });
+  }
 });
 
 const PORT = process.env.PORT || 3000;
@@ -234,13 +294,11 @@ client.on(Events.InteractionCreate, async interaction => {
 
   if (!interaction.isChatInputCommand()) return;
 
-  store = loadStore();
   const guildId = interaction.guildId;
   if (!guildId) return interaction.reply({ content: 'Must be used in a server.', ephemeral: true });
 
   if (interaction.commandName === 'setup') {
     const chosen = interaction.options.getString('permission');
-
     if (!VALID_PERMS.includes(chosen)) {
       const sample = ['ManageGuild', 'ManageMessages', 'KickMembers', 'BanMembers', 'Administrator'];
       return interaction.reply({
@@ -249,94 +307,101 @@ client.on(Events.InteractionCreate, async interaction => {
       });
     }
 
-    store = loadStore();
-    let entry = store.guilds[guildId];
-    if (!entry) {
-      const newKey = generateKey();
-      entry = {
-        apiKey: newKey,
-        createdAt: Date.now(),
-        requiredPermission: chosen
-      };
-    } else {
-      entry.requiredPermission = chosen;
-    }
-    store.guilds[guildId] = entry;
-    saveStore(store);
-
-    await interaction.reply({ content: `API Key: \`${entry.apiKey}\`\nRequired permission to use announce/servers: \`${entry.requiredPermission}\`.`, ephemeral: true });
-    return;
-  }
-
-  const guildEntry = store.guilds[guildId];
-  if (!guildEntry && (interaction.commandName === 'announce' || interaction.commandName === 'servers')) {
-    return interaction.reply({ content: 'This server is not set up. Run `/setup` first.', ephemeral: true });
-  }
-
-  const requiredPerm = guildEntry?.requiredPermission || 'ManageGuild';
-  const hasPermission = interaction.member.permissions
-    ? interaction.member.permissions.has(PermissionFlagsBits[requiredPerm])
-    : false;
-
-  if ((interaction.commandName === 'announce' || interaction.commandName === 'servers') && !hasPermission) {
-    return interaction.reply({ content: `You do not have the required permission (\`${requiredPerm}\`) to use this command.`, ephemeral: true });
-  }
-
-  if (interaction.commandName === 'announce') {
-    const type = interaction.options.getString('type');
-    const title = interaction.options.getString('title');
-    const message = interaction.options.getString('message');
-
     try {
-      const resp = await fetch(`${process.env.API_URL}/send?key=${encodeURIComponent(guildEntry.apiKey)}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type, title, message })
-      });
-
-      if (!resp.ok) throw new Error('API error');
-      await interaction.reply({ content: `Announcement sent.\n**${type}**: ${title}`, ephemeral: true });
-    } catch (err) {
-      console.error('Failed announcement:', err);
-      await interaction.reply({ content: 'Failed to send announcement.', ephemeral: true });
-    }
-    return;
-  }
-
-  if (interaction.commandName === 'servers') {
-    const placeId = interaction.options.getString('placeid');
-    try {
-      let universeId = placeId;
-
-      const placeInfoRes = await fetch(`https://games.roblox.com/v1/games/multiget-place-details?placeIds=${encodeURIComponent(placeId)}`);
-      if (placeInfoRes.ok) {
-        const placeInfo = await placeInfoRes.json();
-        if (Array.isArray(placeInfo) && placeInfo[0] && placeInfo[0].universeId) {
-          universeId = placeInfo[0].universeId;
-        }
+      const existing = await getGuildEntry(guildId);
+      let apiKey;
+      if (!existing) {
+        apiKey = generateKey();
+      } else {
+        apiKey = existing.apiKey;
       }
-
-      let total = 0;
-      let cursor = null;
-      do {
-        const url = new URL(`https://games.roblox.com/v1/games/${encodeURIComponent(universeId)}/servers/Public`);
-        url.searchParams.set('sortOrder', 'Asc');
-        url.searchParams.set('limit', '100');
-        if (cursor) url.searchParams.set('cursor', cursor);
-
-        const pageRes = await fetch(url.toString());
-        if (!pageRes.ok) break;
-        const page = await pageRes.json();
-        total += (page.data || []).length;
-        cursor = page.nextPageCursor;
-      } while (cursor);
-
-      await interaction.reply({ content: `Total active servers: ${total}` });
+      await upsertGuild(guildId, apiKey, chosen);
+      const updated = await getGuildEntry(guildId);
+      await interaction.reply({ content: `API Key: \`${updated.apiKey}\`\nRequired permission to use announce/servers: \`${updated.requiredPermission}\`.`, ephemeral: true });
     } catch (err) {
-      console.error('Error fetching servers:', err);
-      await interaction.reply({ content: 'Failed to fetch server count.', ephemeral: true });
+      console.error("Setup error:", err);
+      await interaction.reply({ content: 'Failed to setup.', ephemeral: true });
     }
     return;
+  }
+
+  if (interaction.commandName === 'announce' || interaction.commandName === 'servers') {
+    let guildEntry;
+    try {
+      guildEntry = await getGuildEntry(guildId);
+    } catch (e) {
+      console.error("Fetch guild entry error:", e);
+    }
+
+    if (!guildEntry) {
+      return interaction.reply({ content: 'This server is not set up. Run `/setup` first.', ephemeral: true });
+    }
+
+    const requiredPerm = guildEntry.requiredPermission || 'ManageGuild';
+    const hasPermission = interaction.member.permissions
+      ? interaction.member.permissions.has(PermissionFlagsBits[requiredPerm])
+      : false;
+
+    if (!hasPermission) {
+      return interaction.reply({ content: `You do not have the required permission (\`${requiredPerm}\`) to use this command.`, ephemeral: true });
+    }
+
+    if (interaction.commandName === 'announce') {
+      const type = interaction.options.getString('type');
+      const title = interaction.options.getString('title');
+      const message = interaction.options.getString('message');
+
+      try {
+        const resp = await fetch(`${process.env.API_URL}/send?key=${encodeURIComponent(guildEntry.apiKey)}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type, title, message })
+        });
+
+        if (!resp.ok) throw new Error('API error');
+        await interaction.reply({ content: `Announcement sent.\n**${type}**: ${title}`, ephemeral: true });
+      } catch (err) {
+        console.error('Failed announcement:', err);
+        await interaction.reply({ content: 'Failed to send announcement.', ephemeral: true });
+      }
+      return;
+    }
+
+    if (interaction.commandName === 'servers') {
+      const placeId = interaction.options.getString('placeid');
+      try {
+        let universeId = placeId;
+
+        const placeInfoRes = await fetch(`https://games.roblox.com/v1/games/multiget-place-details?placeIds=${encodeURIComponent(placeId)}`);
+        if (placeInfoRes.ok) {
+          const placeInfo = await placeInfoRes.json();
+          if (Array.isArray(placeInfo) && placeInfo[0] && placeInfo[0].universeId) {
+            universeId = placeInfo[0].universeId;
+          }
+        }
+
+        let total = 0;
+        let cursor = null;
+        do {
+          const url = new URL(`https://games.roblox.com/v1/games/${encodeURIComponent(universeId)}/servers/Public`);
+          url.searchParams.set('sortOrder', 'Asc');
+          url.searchParams.set('limit', '100');
+          if (cursor) url.searchParams.set('cursor', cursor);
+
+          const pageRes = await fetch(url.toString());
+          if (!pageRes.ok) break;
+          const page = await pageRes.json();
+          total += (page.data || []).length;
+          cursor = page.nextPageCursor;
+        } while (cursor);
+
+        await interaction.reply({ content: `Total active servers: ${total}` });
+      } catch (err) {
+        console.error('Error fetching servers:', err);
+        await interaction.reply({ content: 'Failed to fetch server count.', ephemeral: true });
+      }
+      return;
+    }
   }
 });
 
