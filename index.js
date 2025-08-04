@@ -202,9 +202,9 @@ async function registerCommandsForGuild(guildId) {
       Routes.applicationGuildCommands(process.env.CLIENT_ID, guildId),
       { body: [setupCommand.toJSON(), broadcastCommand.toJSON(), serversCommand.toJSON()] }
     );
-    console.log(Created the commands for server ${guildId});
+    console.log(`Created the commands for server ${guildId}`);
   } catch (err) {
-    console.error(Failed to created commands for server ${guildId}:, err);
+    console.error(`Failed to created commands for server ${guildId}:`, err);
   }
 }
 
@@ -264,7 +264,7 @@ client.on(Events.InteractionCreate, async interaction => {
     store.guilds[guildId] = entry;
     saveStore(store);
 
-    await interaction.reply({ content: `API Key: ${entry.apiKey}\nRequired permission to use announce/servers: ${entry.requiredPermission}.`, ephemeral: true });
+    await interaction.reply({ content: `API Key: ${entry.apiKey}\nRequired permission to use commands: ${entry.requiredPermission}.`, ephemeral: true });
     return;
   }
 
@@ -279,7 +279,7 @@ client.on(Events.InteractionCreate, async interaction => {
     : false;
 
   if ((interaction.commandName === 'announce' || interaction.commandName === 'servers') && !hasPermission) {
-    return interaction.reply({ content: You do not have the required permission (\${requiredPerm}\) to use this command., ephemeral: true });
+    return interaction.reply({ content: `You do not have the required permission (\${requiredPerm}\) to use this command`., ephemeral: true });
   }
 
   if (interaction.commandName === 'announce') {
