@@ -288,7 +288,7 @@ client.on(Events.InteractionCreate, async interaction => {
     const message = interaction.options.getString('message');
 
     try {
-      const resp = await fetch(`${process.env.API_URL}/send?key=${encodeURIComponent(guildEntry.apiKey))`}, {
+      const resp = await fetch(`${process.env.API_URL}/send?key=${encodeURIComponent(guildEntry.apiKey))}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type, title, message })
