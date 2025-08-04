@@ -279,7 +279,7 @@ client.on(Events.InteractionCreate, async interaction => {
     : false;
 
   if ((interaction.commandName === 'announce' || interaction.commandName === 'servers') && !hasPermission) {
-    return interaction.reply({ content: `You do not have the required permission (\${requiredPerm}\) to use this command`., ephemeral: true });
+    return interaction.reply({ content: `You do not have the required permission (\${requiredPerm}\) to use this command.`, ephemeral: true });
   }
 
   if (interaction.commandName === 'announce') {
