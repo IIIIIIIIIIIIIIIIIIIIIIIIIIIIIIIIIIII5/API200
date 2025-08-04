@@ -112,6 +112,15 @@ app.get('/keys', requireBasicAuth, (req, res) => {
   res.json(output);
 });
 
+app.get('/kick/latest', (req, res) => {
+  const key = extractKey(req);
+  if (!key) return res.status(400).json({ error: 'Missing API key' });
+
+  store = loadStore();
+  if (!store.kicks[key]) return res.status(204).send();
+  return res.json(store.kicks[key]);
+});
+
 app.get('/validate', (req, res) => {
   const key = extractKey(req);
   if (!key) return res.status(400).json({ error: 'Missing key' });
