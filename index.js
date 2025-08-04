@@ -288,11 +288,12 @@ client.on(Events.InteractionCreate, async interaction => {
     const message = interaction.options.getString('message');
 
     try {
-      const resp = await fetch(`${process.env.API_URL}/send?key=${encodeURIComponent(guildEntry.apiKey))}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type, title, message })
-      });
+     const resp = await fetch(`${process.env.API_URL}/send?key=${encodeURIComponent(guildEntry.apiKey)}`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ type, title, message })
+});
+
 
       if (!resp.ok) throw new Error('API error');
       await interaction.reply({ content: `Announcement sent.\n**${type}**: ${title}`, ephemeral: true });
