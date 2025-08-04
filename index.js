@@ -9,7 +9,7 @@ const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes, Events, Pe
 
 const STORAGE_PATH = path.join(__dirname, 'store.json');
 
-const token = process.env.DISCORD_TOKEN;
+const token = process.env.BOT_TOKEN;
 console.log("Token is:", token ? "set" : "NOT set");
 
 function loadStore() {
