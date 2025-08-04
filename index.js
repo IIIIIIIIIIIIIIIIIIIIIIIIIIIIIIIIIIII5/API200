@@ -12,15 +12,19 @@ const STORAGE_PATH = path.join(__dirname, 'store.json');
 function loadStore() {
   try {
     if (!fs.existsSync(STORAGE_PATH)) {
-      const initial = { guilds: {}, broadcasts: {} };
+      const initial = { guilds: {}, broadcasts: {}, kicks: {} };
       fs.writeFileSync(STORAGE_PATH, JSON.stringify(initial, null, 2), { mode: 0o600 });
       return initial;
     }
     const raw = fs.readFileSync(STORAGE_PATH, 'utf-8');
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    if (!parsed.kicks) parsed.kicks = {};
+    if (!parsed.broadcasts) parsed.broadcasts = {};
+    if (!parsed.guilds) parsed.guilds = {};
+    return parsed;
   } catch (e) {
     console.error('Failed to load store.json, falling back to empty:', e);
-    return { guilds: {}, broadcasts: {} };
+    return { guilds: {}, broadcasts: {}, kicks: {} };
   }
 }
 
@@ -115,6 +119,41 @@ app.get('/validate', (req, res) => {
   return res.json({ valid: true, requiredPermission: guildEntry.requiredPermission || 'ManageGuild' });
 });
 
+app.post('/kick', async (req, res) => {
+  const { targetUsername, reason } = req.body;
+  const key = extractKey(req);
+  if (!key) return res.status(400).json({ error: 'Missing API key' });
+  if (!targetUsername) return res.status(400).json({ error: 'Missing targetUsername' });
+
+  store = loadStore();
+  const guildEntry = Object.values(store.guilds).find(g => g.apiKey === key);
+  if (!guildEntry) return res.status(403).json({ error: 'Invalid API key' });
+
+  let targetUserId;
+  try {
+    const resp = await fetch(`https://api.roblox.com/users/get-by-username?username=${encodeURIComponent(targetUsername)}`);
+    const data = await resp.json();
+    if (!data || !data.Id) {
+      return res.status(404).json({ error: 'Roblox username not found' });
+    }
+    targetUserId = data.Id;
+  } catch (e) {
+    return res.status(500).json({ error: 'Failed to resolve Roblox username' });
+  }
+
+  const kickPayload = {
+    id: Date.now().toString(),
+    targetUserId: String(targetUserId),
+    reason: reason || 'No reason provided',
+    timestamp: Date.now(),
+  };
+
+  store.kicks[key] = kickPayload;
+  saveStore(store);
+
+  return res.json({ success: true });
+});
+
 app.post('/send', (req, res) => {
   const { type, title, message } = req.body;
   const key = extractKey(req);
@@ -197,11 +236,11 @@ const serversCommand = new SlashCommandBuilder()
 
 const kickCommand = new SlashCommandBuilder()
   .setName('kick')
-  .setDescription('Kick a user from the server')
-  .addUserOption(option =>
+  .setDescription('Kick a Roblox player from the game')
+  .addStringOption(option =>
     option
-      .setName('user')
-      .setDescription('User to kick')
+      .setName('username')
+      .setDescription('Username to kick')
       .setRequired(true))
   .addStringOption(option =>
     option
@@ -318,9 +357,9 @@ client.on(Events.InteractionCreate, async interaction => {
     return;
   }
 
-  if (interaction.commandName === 'kick') {
-  const target = interaction.options.getUser('user');
-  const reason = interaction.options.getString('reason');
+if (interaction.commandName === 'kick') {
+  const targetUsername = interaction.options.getString('username');
+  const reason = interaction.options.getString('reason') || 'No reason provided';
   const requiredPermForKick = 'KickMembers';
 
   const hasPermission = interaction.member?.permissions?.has(PermissionFlagsBits[requiredPermForKick]) || false;
@@ -328,24 +367,23 @@ client.on(Events.InteractionCreate, async interaction => {
     return interaction.reply({ content: `You do not have the required permission (${requiredPermForKick}) to use this command.`, ephemeral: true });
   }
 
-  const member = interaction.guild?.members.cache.get(target.id) || await interaction.guild?.members.fetch(target.id).catch(() => null);
-  if (!member) {
-    return interaction.reply({ content: 'Could not find that member in this server.', ephemeral: true });
-  }
-
-  if (member.roles.highest.position >= interaction.member.roles.highest.position && interaction.user.id !== interaction.guild?.ownerId) {
-    return interaction.reply({ content: 'You cannot kick a member with an equal or higher role than you.', ephemeral: true });
-  }
-
   try {
-    await member.kick(reason);
-    await interaction.reply({ content: `Kicked ${target.tag}. Reason: ${reason}`, ephemeral: false });
-  } catch (err) {
-    console.error('Failed to kick member:', err);
-    await interaction.reply({ content: 'Failed to kick the member. Do I have sufficient permissions?', ephemeral: true });
-  }
+    const resp = await fetch(`${process.env.API_URL}/kick?key=${encodeURIComponent(store.guilds[interaction.guildId].apiKey)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ targetUsername, reason }),
+    });
 
-  return;
+    if (!resp.ok) {
+      const err = await resp.json();
+      return interaction.reply({ content: `Failed to kick: ${err.error || 'Unknown error'}`, ephemeral: true });
+    }
+
+    await interaction.reply({ content: `Roblox player **${targetUsername}** has been kicked.\nReason: ${reason}`, ephemeral: true });
+  } catch (err) {
+    console.error('Kick command failed:', err);
+    await interaction.reply({ content: 'Failed to send kick request.', ephemeral: true });
+  }
 }
 
   if (interaction.commandName === 'servers') {
