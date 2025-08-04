@@ -9,6 +9,9 @@ const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes, Events, Pe
 
 const STORAGE_PATH = path.join(__dirname, 'store.json');
 
+const token = process.env.DISCORD_TOKEN;
+console.log("Token is:", token ? "set" : "NOT set");
+
 function loadStore() {
   try {
     if (!fs.existsSync(STORAGE_PATH)) {
