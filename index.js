@@ -5,7 +5,7 @@ const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
 const fetch = require('node-fetch');
-const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes, Events, PermissionFlagsBits } = require('discord.js');
+const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes, Events, PermissionFlagsBits, EmbedBuilder } = require('discord.js');
 
 const STORAGE_PATH = path.join(__dirname, 'store.json');
 
@@ -272,6 +272,15 @@ client.on(Events.GuildCreate, guild => {
   registerCommandsForGuild(guild.id);
 });
 
+const embed = new EmbedBuilder()
+  .setTitle('Setup Complete')
+  .setColor(0x00FF00)
+  .addFields(
+    { name: 'API Key', value: `\`${entry.apiKey}\``, inline: false },
+    { name: 'Required Permission', value: `\`${entry.requiredPermission}\``, inline: true },
+    { name: 'Created At', value: `<t:${Math.floor(entry.createdAt / 1000)}:F>`, inline: true }
+  )
+
 client.on(Events.InteractionCreate, async interaction => {
   if (interaction.isAutocomplete()) {
     if (interaction.commandName === 'setup') {
@@ -296,10 +305,7 @@ client.on(Events.InteractionCreate, async interaction => {
 
    if (!VALID_PERMS.includes(chosen)) {
     const sample = ['ManageGuild', 'ManageMessages', 'KickMembers', 'BanMembers', 'Administrator'];
-    return interaction.reply({
-      content: `Invalid permission ${chosen}. Examples: ${sample.join(', ')}.`,
-      ephemeral: true
-    });
+    return interaction.reply({ content: `Invalid permission ${chosen}. Examples: ${sample.join(', ')}.`, ephemeral: true });
   }
 
     store = loadStore();
@@ -317,7 +323,7 @@ client.on(Events.InteractionCreate, async interaction => {
     store.guilds[guildId] = entry;
     saveStore(store);
 
-    await interaction.reply({ content: `API Key: ${entry.apiKey}\nRequired permission to use commands: ${entry.requiredPermission}.`, ephemeral: true });
+    await interaction.reply({ embeds: [embed], ephemeral: true });
     return;
   }
 
