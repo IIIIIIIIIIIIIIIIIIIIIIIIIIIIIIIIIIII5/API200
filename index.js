@@ -6,45 +6,17 @@ const cors = require('cors');
 const bodyParser = require('body-parser');
 const fetch = require('node-fetch');
 const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes, Events, PermissionFlagsBits, EmbedBuilder } = require('discord.js');
+const admin = require('firebase-admin');
 
-const STORAGE_PATH = path.join(__dirname, 'store.json');
+const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+  databaseURL: process.env.FIREBASE_DATABASE_URL
+});
+const db = admin.database();
 
 const token = process.env.BOT_TOKEN;
 console.log("Token is:", token ? "set" : "NOT set");
-
-function loadStore() {
-  try {
-    if (!fs.existsSync(STORAGE_PATH)) {
-      const initial = { guilds: {}, broadcasts: {}, kicks: {} };
-      fs.writeFileSync(STORAGE_PATH, JSON.stringify(initial, null, 2), { mode: 0o600 });
-      return initial;
-    }
-    const raw = fs.readFileSync(STORAGE_PATH, 'utf-8');
-    const parsed = JSON.parse(raw);
-    if (!parsed.kicks) parsed.kicks = {};
-    if (!parsed.broadcasts) parsed.broadcasts = {};
-    if (!parsed.guilds) parsed.guilds = {};
-    return parsed;
-  } catch (e) {
-    console.error('Failed to load store.json, falling back to empty:', e);
-    return { guilds: {}, broadcasts: {}, kicks: {} };
-  }
-}
-
-function saveStore(store) {
-  try {
-    const tempPath = STORAGE_PATH + '.tmp';
-    fs.writeFileSync(tempPath, JSON.stringify(store, null, 2), { mode: 0o600 });
-    fs.renameSync(tempPath, STORAGE_PATH);
-  } catch (e) {
-    console.error('Save failed, trying direct write:', e);
-    try {
-      fs.writeFileSync(STORAGE_PATH, JSON.stringify(store, null, 2), { mode: 0o600 });
-    } catch (inner) {
-      console.error('Direct write also failed:', inner);
-    }
-  }
-}
 
 function generateKey() {
   return crypto.randomBytes(24).toString('hex');
@@ -90,14 +62,28 @@ function requireBasicAuth(req, res, next) {
   return res.status(403).json({ error: 'Forbidden' });
 }
 
+async function loadStore() {
+  const snapshot = await db.ref('/store').once('value');
+  const val = snapshot.val();
+  return val || { guilds: {}, broadcasts: {}, kicks: {} };
+}
+
+async function saveStore(store) {
+  await db.ref('/store').set(store);
+}
+
 const app = express();
 app.use(cors());
 app.use(bodyParser.json());
 
-let store = loadStore();
+function asyncHandler(fn) {
+  return (req, res, next) => {
+    Promise.resolve(fn(req, res, next)).catch(next);
+  };
+}
 
-app.get('/keys', requireBasicAuth, (req, res) => {
-  store = loadStore();
+app.get('/keys', requireBasicAuth, asyncHandler(async (req, res) => {
+  const store = await loadStore();
   const output = {};
 
   for (const [guildId, entry] of Object.entries(store.guilds)) {
@@ -110,45 +96,45 @@ app.get('/keys', requireBasicAuth, (req, res) => {
   }
 
   res.json(output);
-});
+}));
 
-app.get('/kick/latest', (req, res) => {
+app.get('/kick/latest', asyncHandler(async (req, res) => {
   const key = extractKey(req);
   if (!key) return res.status(400).json({ error: 'Missing API key' });
 
-  store = loadStore();
+  const store = await loadStore();
   const payload = store.kicks[key];
   if (!payload) return res.status(204).send();
 
   delete store.kicks[key];
-  saveStore(store);
+  await saveStore(store);
 
   return res.json(payload);
-});
+}));
 
-app.get('/validate', (req, res) => {
+app.get('/validate', asyncHandler(async (req, res) => {
   const key = extractKey(req);
   if (!key) return res.status(400).json({ error: 'Missing key' });
 
-  store = loadStore();
+  const store = await loadStore();
   const guildEntry = Object.values(store.guilds).find(g => g.apiKey === key);
   if (!guildEntry) return res.status(403).json({ error: 'Invalid API key' });
   return res.json({ valid: true, requiredPermission: guildEntry.requiredPermission || 'ManageGuild' });
-});
+}));
 
-app.post('/kick', async (req, res) => {
+app.post('/kick', asyncHandler(async (req, res) => {
   const { targetUsername, reason } = req.body;
   const key = extractKey(req);
   if (!key) return res.status(400).json({ error: 'Missing API key' });
   if (!targetUsername) return res.status(400).json({ error: 'Missing targetUsername' });
 
-  store = loadStore();
+  const store = await loadStore();
   const guildEntry = Object.values(store.guilds).find(g => g.apiKey === key);
   if (!guildEntry) return res.status(403).json({ error: 'Invalid API key' });
 
   let targetUserId;
   try {
-    const resp = await fetch('https://users.roblox.com/v1/usernames/users', {
+    const resp = await fetch('://users.roblox.com/v1/usernames/users', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -182,18 +168,18 @@ app.post('/kick', async (req, res) => {
   };
 
   store.kicks[key] = kickPayload;
-  saveStore(store);
+  await saveStore(store);
 
   return res.json({ success: true });
-});
+}));
 
-app.post('/send', (req, res) => {
+app.post('/send', asyncHandler(async (req, res) => {
   const { type, title, message } = req.body;
   const key = extractKey(req);
   if (!key) return res.status(400).json({ error: 'Missing API key' });
   if (!type || !title || !message) return res.status(400).json({ error: 'Missing fields' });
 
-  store = loadStore();
+  const store = await loadStore();
   const guildEntry = Object.values(store.guilds).find(g => g.apiKey === key);
   if (!guildEntry) return res.status(403).json({ error: 'Invalid API key' });
 
@@ -206,19 +192,19 @@ app.post('/send', (req, res) => {
   };
 
   store.broadcasts[key] = broadcast;
-  saveStore(store);
+  await saveStore(store);
 
   return res.json({ success: true });
-});
+}));
 
-app.get('/latest', (req, res) => {
+app.get('/latest', asyncHandler(async (req, res) => {
   const key = extractKey(req);
   if (!key) return res.status(400).json({ error: 'Missing API key' });
 
-  store = loadStore();
+  const store = await loadStore();
   if (!store.broadcasts[key]) return res.status(204).send();
   return res.json(store.broadcasts[key]);
-});
+}));
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`API server running on port ${PORT}`));
@@ -247,190 +233,100 @@ const broadcastCommand = new SlashCommandBuilder()
       .setDescription('Type of message')
       .setRequired(true)
       .addChoices(
-        { name: 'Message', value: 'Message' },
-        { name: 'Hint', value: 'Hint' }
-      ))
-  .addStringOption(option =>
-    option.setName('title')
-      .setDescription('Title')
-      .setRequired(true))
-  .addStringOption(option =>
-    option.setName('message')
-      .setDescription('Message')
-      .setRequired(true));
-
-const serversCommand = new SlashCommandBuilder()
-  .setName('servers')
-  .setDescription('Get the number of active servers for a game.')
-  .addStringOption(option =>
-    option.setName('placeid')
-      .setDescription('Roblox place ID')
-      .setRequired(true));
-
-const kickCommand = new SlashCommandBuilder()
-  .setName('kick')
-  .setDescription('Kick a Roblox player from the game')
+        { name: 'announcement', value: 'announcement' },
+        { name: 'alert', value: 'alert' },
+        { name: 'broadcast', value: 'broadcast' },
+      )
+  )
   .addStringOption(option =>
     option
-      .setName('username')
-      .setDescription('Username to kick')
-      .setRequired(true))
+      .setName('title')
+      .setDescription('Message title')
+      .setRequired(true)
+  )
   .addStringOption(option =>
     option
-      .setName('reason')
-      .setDescription('Reason for kick'));
-
-const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
+      .setName('message')
+      .setDescription('Message body')
+      .setRequired(true)
+  );
 
 (async () => {
+  const rest = new REST({ version: '10' }).setToken(token);
   try {
     await rest.put(
-      Routes.applicationCommands(process.env.DISCORD_CLIENT_ID),
-      { body: [setupCommand.toJSON(), broadcastCommand.toJSON(), serversCommand.toJSON(), kickCommand.toJSON()] }
+      Routes.applicationCommands(process.env.CLIENT_ID),
+      { body: [setupCommand.toJSON(), broadcastCommand.toJSON()] }
     );
     console.log('Slash commands registered.');
   } catch (error) {
-    console.error('Failed to register commands:', error);
+    console.error(error);
   }
 })();
-
-client.once(Events.ClientReady, () => {
-  console.log('Discord client ready!');
-});
 
 client.on(Events.InteractionCreate, async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
-  const guildId = interaction.guildId;
-
   if (interaction.commandName === 'setup') {
-    const chosen = interaction.options.getString('permission');
-
-    if (!VALID_PERMS.includes(chosen)) {
-      const sample = ['ManageGuild', 'ManageMessages', 'KickMembers', 'BanMembers', 'Administrator'];
-      return interaction.reply({ content: `Invalid permission ${chosen}. Examples: ${sample.join(', ')}.`, ephemeral: true });
+    const requestedPerm = interaction.options.getString('permission');
+    if (!VALID_PERMS.includes(requestedPerm)) {
+      await interaction.reply({ content: `Invalid permission name. Valid options: ${VALID_PERMS.join(', ')}`, ephemeral: true });
+      return;
     }
 
-    store = loadStore();
-    let entry = store.guilds[guildId];
-    if (!entry) {
-      const newKey = generateKey();
-      entry = {
-        apiKey: newKey,
-        createdAt: Date.now(),
-        requiredPermission: chosen
+    const store = await loadStore();
+    if (!store.guilds[interaction.guildId]) {
+      store.guilds[interaction.guildId] = {
+        apiKey: generateKey(),
+        requiredPermission: requestedPerm,
+        createdAt: Date.now()
       };
     } else {
-      entry.requiredPermission = chosen;
+      store.guilds[interaction.guildId].requiredPermission = requestedPerm;
     }
-    store.guilds[guildId] = entry;
-    saveStore(store);
+    await saveStore(store);
 
-    const embed = new EmbedBuilder()
-      .setTitle('Setup Complete')
-      .setColor(0x00FF00)
-      .addFields(
-        { name: 'API Key', value: `\`${entry.apiKey}\``, inline: false },
-        { name: 'Required Permission', value: `\`${entry.requiredPermission}\``, inline: true },
-        { name: 'Created At', value: `<t:${Math.floor(entry.createdAt / 1000)}:F>`, inline: true }
-      );
+    await interaction.reply({
+      content: `API key for this server:\n\`${store.guilds[interaction.guildId].apiKey}\`\nPermission required to use commands: **${requestedPerm}**`,
+      ephemeral: true
+    });
+  } else if (interaction.commandName === 'announce') {
+    const key = await (async () => {
+      const store = await loadStore();
+      return store.guilds[interaction.guildId]?.apiKey;
+    })();
 
-    await interaction.reply({ embeds: [embed], ephemeral: true });
-    return;
-  }
+    if (!key) {
+      await interaction.reply({ content: 'This server is not set up. Use /setup first.', ephemeral: true });
+      return;
+    }
 
-  if (interaction.commandName === 'announce') {
+    const store = await loadStore();
+    const guildData = store.guilds[interaction.guildId];
+    if (!guildData) {
+      await interaction.reply({ content: 'Server data missing. Please run /setup.', ephemeral: true });
+      return;
+    }
+
+    if (!interaction.member.permissions.has(PermissionFlagsBits[guildData.requiredPermission])) {
+      await interaction.reply({ content: `You lack the permission ${guildData.requiredPermission}`, ephemeral: true });
+      return;
+    }
+
     const type = interaction.options.getString('type');
     const title = interaction.options.getString('title');
     const message = interaction.options.getString('message');
 
-    store = loadStore();
-    const entry = store.guilds[guildId];
-    if (!entry) {
-      return interaction.reply({ content: 'This server has not been setup yet. Use /setup first.', ephemeral: true });
-    }
-
-    if (!interaction.member.permissions.has(PermissionFlagsBits[entry.requiredPermission])) {
-      return interaction.reply({ content: `You need the permission ${entry.requiredPermission} to send announcements.`, ephemeral: true });
-    }
-
-    store.broadcasts[entry.apiKey] = {
+    store.broadcasts[key] = {
       id: Date.now().toString(),
       type,
       title,
       message,
-      timestamp: Date.now()
-    };
-    saveStore(store);
-
-    await interaction.reply({ content: 'Announcement sent.', ephemeral: true });
-    return;
-  }
-
-  if (interaction.commandName === 'servers') {
-    const placeId = interaction.options.getString('placeid');
-
-    try {
-      const resp = await fetch(`https://games.roblox.com/v1/games/${placeId}/servers/Public?sortOrder=Asc&limit=100`);
-      const data = await resp.json();
-      if (!data || !data.data) {
-        return interaction.reply({ content: 'Failed to get servers data.', ephemeral: true });
-      }
-
-      const count = data.data.length;
-      await interaction.reply({ content: `There are currently ${count} public servers for place ID ${placeId}.`, ephemeral: true });
-    } catch (e) {
-      await interaction.reply({ content: 'Error fetching servers.', ephemeral: true });
-    }
-    return;
-  }
-
-  if (interaction.commandName === 'kick') {
-    const username = interaction.options.getString('username');
-    const reason = interaction.options.getString('reason') || 'No reason provided';
-
-    store = loadStore();
-    const entry = store.guilds[guildId];
-    if (!entry) {
-      return interaction.reply({ content: 'This server has not been setup yet. Use /setup first.', ephemeral: true });
-    }
-
-    if (!interaction.member.permissions.has(PermissionFlagsBits[entry.requiredPermission])) {
-      return interaction.reply({ content: `You need the permission ${entry.requiredPermission} to kick players.`, ephemeral: true });
-    }
-
-    let userId;
-    try {
-  const resp = await fetch('https://users.roblox.com/v1/usernames/users', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      usernames: [username],
-      excludeBannedUsers: false
-    })
-  });
-  if (!resp.ok) throw new Error('Roblox API failure');
-  const data = await resp.json();
-  if (!data || !Array.isArray(data.data) || data.data.length === 0 || typeof data.data[0].id !== 'number') {
-    return interaction.reply({ content: `Roblox user ${username} not found.`, ephemeral: true });
-  }
-  userId = data.data[0].id;
-} catch {
-  return interaction.reply({ content: 'Failed to look up Roblox user.', ephemeral: true });
-}
-
-    const kickPayload = {
-      id: Date.now().toString(),
-      targetUserId: String(userId),
-      reason,
       timestamp: Date.now(),
     };
+    await saveStore(store);
 
-    store.kicks[entry.apiKey] = kickPayload;
-    saveStore(store);
-
-    await interaction.reply({ content: `Kicked user ${username}.`, ephemeral: true });
-    return;
+    await interaction.reply({ content: 'Broadcast message sent to the game.', ephemeral: true });
   }
 });
 
