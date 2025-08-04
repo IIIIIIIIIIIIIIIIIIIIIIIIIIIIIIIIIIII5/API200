@@ -133,15 +133,28 @@ app.post('/kick', async (req, res) => {
   if (!guildEntry) return res.status(403).json({ error: 'Invalid API key' });
 
   let targetUserId;
-  try {
-    const resp = await fetch(`https://api.roblox.com/users/get-by-username?username=${encodeURIComponent(targetUsername)}`);
-    const data = await resp.json();
-    if (!data || !data.Id) {
-      return res.status(404).json({ error: 'Roblox username not found' });
-    }
-    targetUserId = data.Id;
-  } catch (e) {
-    return res.status(500).json({ error: 'Failed to resolve Roblox username' });
+ try {
+  const resp = await fetch('https://users.roblox.com/v1/usernames/users', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      usernames: [targetUsername],
+      excludeBannedUsers: false
+    })
+  });
+  if (!resp.ok) throw new Error('Roblox API failure');
+  const data = await resp.json();
+  if (
+    !data or
+    !Array.isArray(data.data) ||
+    data.data.length === 0 ||
+    typeof data.data[0].id !== 'number'
+  ) {
+    return res.status(404).json({ error: 'Roblox username not found' });
+  }
+  targetUserId = data.data[0].id;
+} catch (e) {
+  return res.status(500).json({ error: 'Failed to find Roblox username' });
   }
 
   const kickPayload = {
@@ -371,15 +384,23 @@ client.on(Events.InteractionCreate, async interaction => {
 
     let userId;
     try {
-      const resp = await fetch(`https://api.roblox.com/users/get-by-username?username=${encodeURIComponent(username)}`);
-      const data = await resp.json();
-      if (!data || !data.Id) {
-        return interaction.reply({ content: `Roblox user ${username} not found.`, ephemeral: true });
-      }
-      userId = data.Id;
-    } catch {
-      return interaction.reply({ content: 'Failed to look up Roblox user.', ephemeral: true });
-    }
+  const resp = await fetch('https://users.roblox.com/v1/usernames/users', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      usernames: [username],
+      excludeBannedUsers: false
+    })
+  });
+  if (!resp.ok) throw new Error('Roblox API failure');
+  const data = await resp.json();
+  if (!data || !Array.isArray(data.data) || data.data.length === 0 || typeof data.data[0].id !== 'number') {
+    return interaction.reply({ content: `Roblox user ${username} not found.`, ephemeral: true });
+  }
+  userId = data.data[0].id;
+} catch {
+  return interaction.reply({ content: 'Failed to look up Roblox user.', ephemeral: true });
+}
 
     const kickPayload = {
       id: Date.now().toString(),
