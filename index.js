@@ -314,6 +314,7 @@ client.on(Events.InteractionCreate, async interaction => {
       content: `API key for this server:\n\`${store.guilds[interaction.guildId].apiKey}\`\nPermission required to use commands: **${requestedPerm}**`,
       ephemeral: true
     });
+    
   } else if (interaction.commandName === 'announce') {
     const key = await (async () => {
       const store = await loadStore();
@@ -352,6 +353,55 @@ client.on(Events.InteractionCreate, async interaction => {
 
     await interaction.reply({ content: 'Broadcast message sent to the game.', ephemeral: true });
   }
+
+  else if (interaction.commandName === 'kick') {
+  const key = await (async () => {
+    const store = await loadStore();
+    return store.guilds[interaction.guildId]?.apiKey;
+  })();
+
+  if (!key) {
+    await interaction.reply({ content: 'This server is not set up. Use /setup first.', ephemeral: true });
+    return;
+  }
+
+  const store = await loadStore();
+  const guildData = store.guilds[interaction.guildId];
+  if (!guildData) {
+    await interaction.reply({ content: 'Server data missing. Please run /setup.', ephemeral: true });
+    return;
+  }
+
+  if (!interaction.member.permissions.has(PermissionFlagsBits[guildData.requiredPermission])) {
+    await interaction.reply({ content: `You lack the permission ${guildData.requiredPermission}`, ephemeral: true });
+    return;
+  }
+
+  const username = interaction.options.getString('username');
+  const reason = interaction.options.getString('reason') || 'No reason provided';
+
+  try {
+    const response = await fetch(`https://essentials.up.railway.app/kick`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': key
+      },
+      body: JSON.stringify({ targetUsername: username, reason })
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      await interaction.reply({ content: `Kick failed: ${error.error}`, ephemeral: true });
+      return;
+    }
+
+    await interaction.reply({ content: `Kick queued for **${username}** with reason: ${reason}`, ephemeral: true });
+  } catch (err) {
+    console.error('Kick command error:', err);
+    await interaction.reply({ content: 'Failed to contact the backend.', ephemeral: true });
+  }
+}
 });
 
 client.login(token);
