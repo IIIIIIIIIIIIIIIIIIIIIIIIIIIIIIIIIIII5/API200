@@ -143,7 +143,7 @@ app.post('/kick', asyncHandler(async (req, res) => {
 
   let targetUserId;
   try {
-    const resp = await fetch('://users.roblox.com/v1/usernames/users', {
+    const resp = await fetch('https://users.roblox.com/v1/usernames/users', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -396,10 +396,10 @@ client.on(Events.InteractionCreate, async interaction => {
       return;
     }
 
-    await interaction.reply({ content: `Kick queued for **${username}** with reason: ${reason}`, ephemeral: true });
+    await interaction.reply({ content: `Successfully kicked the player for **${username}** with reason: ${reason}`, ephemeral: true });
   } catch (err) {
     console.error('Kick command error:', err);
-    await interaction.reply({ content: 'Failed to contact the backend.', ephemeral: true });
+    await interaction.reply({ content: 'Failed to contact the API.', ephemeral: true });
   }
 }
 });
