@@ -419,8 +419,7 @@ client.on(Events.InteractionCreate, async interaction => {
     await interaction.reply({ content: 'Failed to contact the API.', ephemeral: true });
   }
 }
-    
-  } else if (interaction.commandName === 'announce') {
+else if (interaction.commandName === 'announce') {
     const store = await loadStore();
     const key = store.guilds[interaction.guildId]?.apiKey;
 
