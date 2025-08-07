@@ -368,7 +368,7 @@ client.on(Events.InteractionCreate, async interaction => {
       ephemeral: true
     });
 
-    else if (interaction.commandName === 'shutdown') {
+  } else if (interaction.commandName === 'shutdown') {
   const key = await (async () => {
     const store = await loadStore();
     return store.guilds[interaction.guildId]?.apiKey;
