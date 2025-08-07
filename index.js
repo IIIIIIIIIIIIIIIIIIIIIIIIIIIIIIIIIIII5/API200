@@ -72,9 +72,11 @@ function requireBasicAuth(req, res, next) {
 async function loadStore() {
   const doc = await db.collection('store').doc('data').get();
   if (!doc.exists) {
-    return { guilds: {}, broadcasts: {}, kicks: {} };
+    return { guilds: {}, broadcasts: {}, kicks: {}, shutdowns: {} };
   }
-  return doc.data();
+  const data = doc.data();
+  data.shutdowns = data.shutdowns || {};
+  return data;
 }
 
 async function saveStore(store) {
@@ -206,6 +208,29 @@ app.post('/send', asyncHandler(async (req, res) => {
   return res.json({ success: true });
 }));
 
+app.post('/shutdown', asyncHandler(async (req, res) => {
+  const { jobId, reason } = req.body;
+  const key = extractKey(req);
+  if (!key) return res.status(400).json({ error: 'Missing API key' });
+  if (!jobId) return res.status(400).json({ error: 'Missing server id' });
+
+  const store = await loadStore();
+  const guildEntry = Object.values(store.guilds).find(g => g.apiKey === key);
+  if (!guildEntry) return res.status(403).json({ error: 'Invalid API key' });
+
+  const shutdownPayload = {
+    id: Date.now().toString(),
+    jobId,
+    reason: reason || 'No reason provided',
+    timestamp: Date.now(),
+  };
+
+  store.shutdowns[key] = shutdownPayload;
+  await saveStore(store);
+
+  return res.json({ success: true });
+}));
+
 app.get('/latest', asyncHandler(async (req, res) => {
   const key = extractKey(req);
   if (!key) return res.status(400).json({ error: 'Missing API key' });
@@ -213,6 +238,20 @@ app.get('/latest', asyncHandler(async (req, res) => {
   const store = await loadStore();
   if (!store.broadcasts[key]) return res.status(204).send();
   return res.json(store.broadcasts[key]);
+}));
+
+app.get('/shutdown/latest', asyncHandler(async (req, res) => {
+  const key = extractKey(req);
+  if (!key) return res.status(400).json({ error: 'Missing API key' });
+
+  const store = await loadStore();
+  const payload = store.shutdowns?.[key];
+  if (!payload) return res.status(204).send();
+
+  delete store.shutdowns[key];
+  await saveStore(store);
+
+  return res.json(payload);
 }));
 
 const PORT = process.env.PORT || 3000;
@@ -275,12 +314,26 @@ const kickCommand = new SlashCommandBuilder()
       .setRequired(false)
   );
 
+const shutdownCommand = new SlashCommandBuilder()
+  .setName('shutdown')
+  .setDescription('Shutdown a specific Roblox server (by ServerId)')
+  .addStringOption(option =>
+    option.setName('jobid')
+      .setDescription('Roblox JobId (server ID)')
+      .setRequired(true)
+  )
+  .addStringOption(option =>
+    option.setName('reason')
+      .setDescription('Reason for shutdown')
+      .setRequired(false)
+  );
+
 (async () => {
   const rest = new REST({ version: '10' }).setToken(token);
   try {
     await rest.put(
       Routes.applicationCommands(process.env.CLIENT_ID),
-      { body: [setupCommand.toJSON(), broadcastCommand.toJSON()] }
+      { body: [setupCommand.toJSON(), broadcastCommand.toJSON(), kickCommand.toJSON(), shutdownCommand.toJSON()] }
     );
     console.log('Commands created.');
   } catch (error) {
