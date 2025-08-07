@@ -9,7 +9,6 @@ const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes, Events, Pe
 const admin = require('firebase-admin');
 
 const privateKey = process.env.PRIVATEKEY.replace(/\\n/g, '\n');
-
 const serviceAccount = {
   project_id: process.env.PROJECTID,
   client_email: process.env.CLIENTEMAIL,
@@ -23,6 +22,7 @@ admin.initializeApp({
 const db = admin.firestore();
 
 const token = process.env.BOT_TOKEN;
+const clientId = process.env.CLIENT_ID;
 console.log("Token is:", token ? "set" : "NOT set");
 
 function generateKey() {
@@ -36,13 +36,7 @@ function extractKey(req) {
 function formatReadable(ts) {
   if (!ts) return null;
   const d = new Date(Number(ts));
-  const yyyy = d.getUTCFullYear();
-  const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
-  const dd = String(d.getUTCDate()).padStart(2, '0');
-  const hh = String(d.getUTCHours()).padStart(2, '0');
-  const min = String(d.getUTCMinutes()).padStart(2, '0');
-  const sec = String(d.getUTCSeconds()).padStart(2, '0');
-  return `${yyyy}-${mm}-${dd} ${hh}:${min}:${sec}`;
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')} ${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}:${String(d.getUTCSeconds()).padStart(2, '0')}`;
 }
 
 function requireBasicAuth(req, res, next) {
@@ -59,10 +53,7 @@ function requireBasicAuth(req, res, next) {
     return res.status(400).json({ error: 'Bad auth header' });
   }
   const [user, pass] = decoded.split(':');
-  if (
-    user === process.env.KEYS_USER &&
-    pass === process.env.KEYS_PASS
-  ) {
+  if (user === process.env.KEYS_USER && pass === process.env.KEYS_PASS) {
     return next();
   }
   res.setHeader('WWW-Authenticate', 'Basic realm="keys"');
@@ -71,9 +62,7 @@ function requireBasicAuth(req, res, next) {
 
 async function loadStore() {
   const doc = await db.collection('store').doc('data').get();
-  if (!doc.exists) {
-    return { guilds: {}, broadcasts: {}, kicks: {}, shutdowns: {} };
-  }
+  if (!doc.exists) return { guilds: {}, broadcasts: {}, kicks: {}, shutdowns: {} };
   const data = doc.data();
   data.shutdowns = data.shutdowns || {};
   return data;
@@ -88,187 +77,17 @@ app.use(cors());
 app.use(bodyParser.json());
 
 function asyncHandler(fn) {
-  return (req, res, next) => {
-    Promise.resolve(fn(req, res, next)).catch(next);
-  };
+  return (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 }
 
-app.get('/keys', requireBasicAuth, asyncHandler(async (req, res) => {
-  const store = await loadStore();
-  const output = {};
-
-  for (const [guildId, entry] of Object.entries(store.guilds)) {
-    output[guildId] = {
-      apiKey: entry.apiKey,
-      requiredPermission: entry.requiredPermission,
-      createdAt: entry.createdAt,
-      createdAtReadable: entry.createdAt ? formatReadable(entry.createdAt) : null
-    };
-  }
-
-  res.json(output);
-}));
-
-app.get('/kick/latest', asyncHandler(async (req, res) => {
-  const key = extractKey(req);
-  if (!key) return res.status(400).json({ error: 'Missing API key' });
-
-  const store = await loadStore();
-  const payload = store.kicks[key];
-  if (!payload) return res.status(204).send();
-
-  delete store.kicks[key];
-  await saveStore(store);
-
-  return res.json(payload);
-}));
-
-app.get('/validate', asyncHandler(async (req, res) => {
-  const key = extractKey(req);
-  if (!key) return res.status(400).json({ error: 'Missing key' });
-
-  const store = await loadStore();
-  const guildEntry = Object.values(store.guilds).find(g => g.apiKey === key);
-  if (!guildEntry) return res.status(403).json({ error: 'Invalid API key' });
-  return res.json({ valid: true, requiredPermission: guildEntry.requiredPermission || 'ManageGuild' });
-}));
-
-app.post('/kick', asyncHandler(async (req, res) => {
-  const { targetUsername, reason } = req.body;
-  const key = extractKey(req);
-  if (!key) return res.status(400).json({ error: 'Missing API key' });
-  if (!targetUsername) return res.status(400).json({ error: 'Missing targetUsername' });
-
-  const store = await loadStore();
-  const guildEntry = Object.values(store.guilds).find(g => g.apiKey === key);
-  if (!guildEntry) return res.status(403).json({ error: 'Invalid API key' });
-
-  let targetUserId;
-  try {
-    const resp = await fetch('https://users.roblox.com/v1/usernames/users', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        usernames: [targetUsername],
-        excludeBannedUsers: false
-      })
-    });
-    if (!resp.ok) {
-      return res.status(500).json({ error: 'Roblox API failure' });
-    }
-    const data = await resp.json();
-    if (
-      !data ||
-      !Array.isArray(data.data) ||
-      data.data.length === 0 ||
-      typeof data.data[0].id !== 'number'
-    ) {
-      return res.status(404).json({ error: 'Roblox username not found' });
-    }
-    targetUserId = data.data[0].id;
-  } catch (e) {
-    console.error('Username lookup error:', e);
-    return res.status(500).json({ error: 'Failed to find Roblox username' });
-  }
-
-  const kickPayload = {
-    id: Date.now().toString(),
-    targetUserId: String(targetUserId),
-    reason: reason || 'No reason provided',
-    timestamp: Date.now(),
-  };
-
-  store.kicks[key] = kickPayload;
-  await saveStore(store);
-
-  return res.json({ success: true });
-}));
-
-app.post('/send', asyncHandler(async (req, res) => {
-  const { type, title, message } = req.body;
-  const key = extractKey(req);
-  if (!key) return res.status(400).json({ error: 'Missing API key' });
-  if (!type || !title || !message) return res.status(400).json({ error: 'Missing fields' });
-
-  const store = await loadStore();
-  const guildEntry = Object.values(store.guilds).find(g => g.apiKey === key);
-  if (!guildEntry) return res.status(403).json({ error: 'Invalid API key' });
-
-  const broadcast = {
-    id: Date.now().toString(),
-    type,
-    title,
-    message,
-    timestamp: Date.now(),
-  };
-
-  store.broadcasts[key] = broadcast;
-  await saveStore(store);
-
-  return res.json({ success: true });
-}));
-
-app.post('/shutdown', asyncHandler(async (req, res) => {
-  const { jobId, reason } = req.body;
-  const key = extractKey(req);
-  if (!key) return res.status(400).json({ error: 'Missing API key' });
-  if (!jobId) return res.status(400).json({ error: 'Missing server id' });
-
-  const store = await loadStore();
-  const guildEntry = Object.values(store.guilds).find(g => g.apiKey === key);
-  if (!guildEntry) return res.status(403).json({ error: 'Invalid API key' });
-
-  const shutdownPayload = {
-    id: Date.now().toString(),
-    jobId,
-    reason: reason || 'No reason provided',
-    timestamp: Date.now(),
-  };
-
-  store.shutdowns[key] = shutdownPayload;
-  await saveStore(store);
-
-  return res.json({ success: true });
-}));
-
-app.get('/latest', asyncHandler(async (req, res) => {
-  const key = extractKey(req);
-  if (!key) return res.status(400).json({ error: 'Missing API key' });
-
-  const store = await loadStore();
-  if (!store.broadcasts[key]) return res.status(204).send();
-  return res.json(store.broadcasts[key]);
-}));
-
-app.get('/shutdown/latest', asyncHandler(async (req, res) => {
-  const key = extractKey(req);
-  if (!key) return res.status(400).json({ error: 'Missing API key' });
-
-  const store = await loadStore();
-  const payload = store.shutdowns && store.shutdowns[key];
-  if (!payload) return res.status(204).send();
-
-  delete store.shutdowns[key];
-  await saveStore(store);
-
-  return res.json(payload);
-}));
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
-
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
-
 const VALID_PERMS = Object.keys(PermissionFlagsBits);
 
 const setupCommand = new SlashCommandBuilder()
   .setName('setup')
   .setDescription('Generate/view this server’s API key and choose the required permission for commands')
   .addStringOption(option =>
-    option
-      .setName('permission')
+    option.setName('permission')
       .setDescription('Discord permission required to use commands')
       .setRequired(true)
       .setAutocomplete(true)
@@ -278,83 +97,72 @@ const broadcastCommand = new SlashCommandBuilder()
   .setName('announce')
   .setDescription('Send a message to all players in game')
   .addStringOption(option =>
-    option
-      .setName('type')
+    option.setName('type')
       .setDescription('Type of message')
       .setRequired(true)
-      .addChoices(
-        { name: 'hint', value: 'hint' },
-        { name: 'message', value: 'message' }
-      )
+      .addChoices({ name: 'hint', value: 'hint' }, { name: 'message', value: 'message' })
   )
-  .addStringOption(option =>
-    option
-      .setName('title')
-      .setDescription('Message title')
-      .setRequired(true)
-  )
-  .addStringOption(option =>
-    option
-      .setName('message')
-      .setDescription('Message body')
-      .setRequired(true)
-  );
+  .addStringOption(option => option.setName('title').setDescription('Message title').setRequired(true))
+  .addStringOption(option => option.setName('message').setDescription('Message body').setRequired(true));
 
 const kickCommand = new SlashCommandBuilder()
   .setName('kick')
   .setDescription('Queue a Roblox user to be kicked in-game')
-  .addStringOption(option =>
-    option
-      .setName('username')
-      .setDescription('Roblox username to kick')
-      .setRequired(true)
-  )
-  .addStringOption(option =>
-    option
-      .setName('reason')
-      .setDescription('Reason for kick')
-      .setRequired(false)
-  );
+  .addStringOption(option => option.setName('username').setDescription('Roblox username to kick').setRequired(true))
+  .addStringOption(option => option.setName('reason').setDescription('Reason for kick').setRequired(false));
 
 const shutdownCommand = new SlashCommandBuilder()
   .setName('shutdown')
   .setDescription('Shutdown a specific Roblox server (by ServerId)')
-  .addStringOption(option =>
-    option.setName('jobid')
-      .setDescription('Roblox JobId (server ID)')
-      .setRequired(true)
-  )
-  .addStringOption(option =>
-    option.setName('reason')
-      .setDescription('Reason for shutdown')
-      .setRequired(false)
-  );
+  .addStringOption(option => option.setName('jobid').setDescription('Roblox JobId (server ID)').setRequired(true))
+  .addStringOption(option => option.setName('reason').setDescription('Reason for shutdown').setRequired(false));
 
-(async () => {
-  const rest = new REST({ version: '10' }).setToken(token);
+const rest = new REST({ version: '10' }).setToken(token);
+
+async function RegisterGlobslCommands() {
+  const commandsToRegister = [
+    setupCommand.toJSON(),
+    broadcastCommand.toJSON(),
+    kickCommand.toJSON(),
+    shutdownCommand.toJSON()
+  ];
+
   try {
-    await rest.put(
-      Routes.applicationCommands(process.env.CLIENT_ID),
-      { body: [setupCommand.toJSON(), broadcastCommand.toJSON(), kickCommand.toJSON(), shutdownCommand.toJSON()] }
-    );
-    console.log('Commands created.');
+    const currentCommands = await rest.get(Routes.applicationCommands(clientId));
+
+    const changed =
+      currentCommands.length !== commandsToRegister.length ||
+      currentCommands.some((cmd, i) => JSON.stringify(cmd) !== JSON.stringify(commandsToRegister[i]));
+
+    if (changed) {
+      console.log('🔁 Changes detected. Updating global slash commands...');
+      await rest.put(Routes.applicationCommands(clientId), { body: commandsToRegister });
+      console.log('✅ Slash commands registered.');
+    } else {
+      console.log('✅ No changes in slash commands. Skipping registration.');
+    }
   } catch (error) {
-    console.error(error);
+    console.error('❌ Failed to register commands:', error);
   }
-})();
+}
+
+RegisterGlobalCommands();
 
 client.on(Events.InteractionCreate, async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
+  const store = await loadStore();
+  const guildData = store.guilds[interaction.guildId];
+  const key = guildData?.apiKey;
+
   if (interaction.commandName === 'setup') {
     const requestedPerm = interaction.options.getString('permission');
     if (!VALID_PERMS.includes(requestedPerm)) {
-      await interaction.reply({ content: `Invalid permission name. Valid options: ${VALID_PERMS.join(', ')}`, ephemeral: true });
+      await interaction.reply({ content: `Invalid permission. Valid: ${VALID_PERMS.join(', ')}`, ephemeral: true });
       return;
     }
 
-    const store = await loadStore();
-    if (!store.guilds[interaction.guildId]) {
+    if (!guildData) {
       store.guilds[interaction.guildId] = {
         apiKey: generateKey(),
         requiredPermission: requestedPerm,
@@ -363,84 +171,45 @@ client.on(Events.InteractionCreate, async interaction => {
     } else {
       store.guilds[interaction.guildId].requiredPermission = requestedPerm;
     }
-    await saveStore(store);
 
+    await saveStore(store);
     await interaction.reply({
-      content: `API key for this server:\n\`${store.guilds[interaction.guildId].apiKey}\`\nPermission required to use commands: **${requestedPerm}**`,
+      content: `API key:\n\`${store.guilds[interaction.guildId].apiKey}\`\nPermission: **${requestedPerm}**`,
       ephemeral: true
     });
 
-  } else if (interaction.commandName === 'shutdown') {
-    const key = await (async () => {
-    const store = await loadStore();
-    return store.guilds[interaction.guildId] && store.guilds[interaction.guildId].apiKey;
-  })();
-
-  if (!key) {
+  } else if (!guildData) {
     await interaction.reply({ content: 'This server is not set up. Use /setup first.', ephemeral: true });
     return;
-  }
-
-  const store = await loadStore();
-  const guildData = store.guilds[interaction.guildId];
-  if (!guildData) {
-    await interaction.reply({ content: 'Server data missing. Please run /setup.', ephemeral: true });
+  } else if (!interaction.member.permissions.has(PermissionFlagsBits[guildData.requiredPermission])) {
+    await interaction.reply({ content: `Missing permission: ${guildData.requiredPermission}`, ephemeral: true });
     return;
   }
 
-  if (!interaction.member.permissions.has(PermissionFlagsBits[guildData.requiredPermission])) {
-    await interaction.reply({ content: `You lack the permission ${guildData.requiredPermission}`, ephemeral: true });
-    return;
-  }
+  if (interaction.commandName === 'kick') {
+    const username = interaction.options.getString('username');
+    const reason = interaction.options.getString('reason') || 'No reason provided';
 
-  const jobId = interaction.options.getString('jobid');
-  const reason = interaction.options.getString('reason') || 'No reason provided';
+    try {
+      const response = await fetch(`https://essentials.up.railway.app/kick`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': key },
+        body: JSON.stringify({ targetUsername: username, reason })
+      });
 
-  try {
-    const response = await fetch(`https://essentials.up.railway.app/shutdown`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': key
-      },
-      body: JSON.stringify({ jobId, reason })
-    });
+      if (!response.ok) {
+        const error = await response.json();
+        await interaction.reply({ content: `Kick failed: ${error.error}`, ephemeral: true });
+        return;
+      }
 
-    if (!response.ok) {
-      const error = await response.json();
-      await interaction.reply({ content: `Shutdown failed: ${error.error}`, ephemeral: true });
-      return;
+      await interaction.reply({ content: `Kicked **${username}** for: ${reason}`, ephemeral: true });
+    } catch (err) {
+      console.error(err);
+      await interaction.reply({ content: 'Failed to contact kick API.', ephemeral: true });
     }
 
-    await interaction.reply({
-      content: `Shutdown triggered for server **${jobId}**.\nReason: ${reason}`,
-      ephemeral: true
-    });
-  } catch (err) {
-    console.error('Shutdown command error:', err);
-    await interaction.reply({ content: 'Failed to contact the API.', ephemeral: true });
-  }
-}
-else if (interaction.commandName === 'announce') {
-    const store = await loadStore();
-    const key = store.guilds[interaction.guildId] && store.guilds[interaction.guildId].apiKey;
-
-    if (!key) {
-      await interaction.reply({ content: 'This server is not set up. Use /setup first.', ephemeral: true });
-      return;
-    }
-
-    const guildData = store.guilds[interaction.guildId];
-    if (!guildData) {
-      await interaction.reply({ content: 'Server data missing. Please run /setup.', ephemeral: true });
-      return;
-    }
-
-    if (!interaction.member.permissions.has(PermissionFlagsBits[guildData.requiredPermission])) {
-      await interaction.reply({ content: `You lack the permission ${guildData.requiredPermission}`, ephemeral: true });
-      return;
-    }
-
+  } else if (interaction.commandName === 'announce') {
     const type = interaction.options.getString('type');
     const title = interaction.options.getString('title');
     const message = interaction.options.getString('message');
@@ -454,57 +223,36 @@ else if (interaction.commandName === 'announce') {
     };
     await saveStore(store);
 
-    await interaction.reply({ content: 'Broadcast message sent to the game.', ephemeral: true });
-}
-  else if (interaction.commandName === 'kick') {
-  const key = await (async () => {
-    const store = await loadStore();
-    const guild = store.guilds[interaction.guildId];
-    return guild ? guild.apiKey : undefined;
-  })();
+    await interaction.reply({ content: 'Broadcast sent.', ephemeral: true });
 
-  if (!key) {
-    await interaction.reply({ content: 'This server is not set up. Use /setup first.', ephemeral: true });
-    return;
-  }
+  } else if (interaction.commandName === 'shutdown') {
+    const jobId = interaction.options.getString('jobid');
+    const reason = interaction.options.getString('reason') || 'No reason provided';
 
-  const store = await loadStore();
-  const guildData = store.guilds[interaction.guildId];
-  if (!guildData) {
-    await interaction.reply({ content: 'Server data missing. Please run /setup.', ephemeral: true });
-    return;
-  }
+    try {
+      const response = await fetch(`https://essentials.up.railway.app/shutdown`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': key },
+        body: JSON.stringify({ jobId, reason })
+      });
 
-  if (!interaction.member.permissions.has(PermissionFlagsBits[guildData.requiredPermission])) {
-    await interaction.reply({ content: `You lack the permission ${guildData.requiredPermission}`, ephemeral: true });
-    return;
-  }
+      if (!response.ok) {
+        const error = await response.json();
+        await interaction.reply({ content: `Shutdown failed: ${error.error}`, ephemeral: true });
+        return;
+      }
 
-  const username = interaction.options.getString('username');
-  const reason = interaction.options.getString('reason') || 'No reason provided';
-
-  try {
-    const response = await fetch(`https://essentials.up.railway.app/kick`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': key
-      },
-      body: JSON.stringify({ targetUsername: username, reason })
-    });
-
-    if (!response.ok) {
-      const error = await response.json();
-      await interaction.reply({ content: `Kick failed: ${error.error}`, ephemeral: true });
-      return;
+      await interaction.reply({ content: `Server **${jobId}** is shutting down.\nReason: ${reason}`, ephemeral: true });
+    } catch (err) {
+      console.error(err);
+      await interaction.reply({ content: 'Failed to contact shutdown API.', ephemeral: true });
     }
-
-    await interaction.reply({ content: `Successfully kicked the player for **${username}** with reason: ${reason}`, ephemeral: true });
-  } catch (err) {
-    console.error('Kick command error:', err);
-    await interaction.reply({ content: 'Failed to contact the API.', ephemeral: true });
   }
-}
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`🌐 Express server running on port ${PORT}`);
 });
 
 client.login(token);
