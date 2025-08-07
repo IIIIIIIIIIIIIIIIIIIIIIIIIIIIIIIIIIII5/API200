@@ -369,7 +369,7 @@ client.on(Events.InteractionCreate, async interaction => {
     });
 
   } else if (interaction.commandName === 'shutdown') {
-  const key = await (async () => {
+    const key = await (async () => {
     const store = await loadStore();
     return store.guilds[interaction.guildId]?.apiKey;
   })();
@@ -421,17 +421,14 @@ client.on(Events.InteractionCreate, async interaction => {
 }
     
   } else if (interaction.commandName === 'announce') {
-    const key = await (async () => {
-      const store = await loadStore();
-      return store.guilds[interaction.guildId]?.apiKey;
-    })();
+    const store = await loadStore();
+    const key = store.guilds[interaction.guildId]?.apiKey;
 
     if (!key) {
       await interaction.reply({ content: 'This server is not set up. Use /setup first.', ephemeral: true });
       return;
     }
 
-    const store = await loadStore();
     const guildData = store.guilds[interaction.guildId];
     if (!guildData) {
       await interaction.reply({ content: 'Server data missing. Please run /setup.', ephemeral: true });
@@ -457,8 +454,7 @@ client.on(Events.InteractionCreate, async interaction => {
     await saveStore(store);
 
     await interaction.reply({ content: 'Broadcast message sent to the game.', ephemeral: true });
-  }
-
+}
   else if (interaction.commandName === 'kick') {
   const key = await (async () => {
     const store = await loadStore();
