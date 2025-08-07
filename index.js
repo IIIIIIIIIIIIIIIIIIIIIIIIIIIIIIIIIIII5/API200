@@ -152,6 +152,7 @@ async function RegisterGlobalCommands() {
 
     if (changed) {
       await rest.put(Routes.applicationCommands(clientId), { body: commandsToRegister });
+      console.log('Slash commands registered/updated.');
     } else {
       console.log('No changes in slash commands. Skipping.');
     }
@@ -159,8 +160,6 @@ async function RegisterGlobalCommands() {
     console.error('Failed to register commands:', error);
   }
 }
-
-RegisterGlobalCommands();
 
 client.on(Events.InteractionCreate, async interaction => {
   if (!interaction.isChatInputCommand()) return;
@@ -206,6 +205,13 @@ client.on(Events.InteractionCreate, async interaction => {
     const username = interaction.options.getString('username');
     const reason = interaction.options.getString('reason') || 'No reason provided';
 
+    if (!key) {
+      await interaction.reply({ content: 'API key missing for this guild. Please run /setup.', ephemeral: true });
+      return;
+    }
+
+    console.log('Kick command:', { username, reason, key });
+
     try {
       const response = await fetch('https://essentials.up.railway.app/kick', {
         method: 'POST',
@@ -214,8 +220,9 @@ client.on(Events.InteractionCreate, async interaction => {
       });
 
       if (!response.ok) {
-        const error = await response.json();
-        await interaction.reply({ content: `Kick failed: ${error.error}`, ephemeral: true });
+        const errorText = await response.text();
+        console.log('Kick API error response:', errorText);
+        await interaction.reply({ content: `Kick failed: ${errorText}`, ephemeral: true });
         return;
       }
 
@@ -268,7 +275,10 @@ client.on(Events.InteractionCreate, async interaction => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`🌐 Express server running on port ${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });
 
-client.login(token);
+(async () => {
+  await RegisterGlobalCommands();
+  client.login(token);
+})();
