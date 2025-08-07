@@ -5,7 +5,9 @@ const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
 const fetch = require('node-fetch');
-const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes, Events, PermissionFlagsBits, EmbedBuilder } = require('discord.js');
+const { 
+  Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes, Events, PermissionFlagsBits 
+} = require('discord.js');
 const admin = require('firebase-admin');
 
 const privateKey = process.env.PRIVATEKEY.replace(/\\n/g, '\n');
@@ -100,14 +102,17 @@ const broadcastCommand = new SlashCommandBuilder()
     option.setName('type')
       .setDescription('Type of message')
       .setRequired(true)
-      .addChoices({ name: 'hint', value: 'hint' }, { name: 'message', value: 'message' })
+      .addChoices(
+        { name: 'hint', value: 'hint' },
+        { name: 'message', value: 'message' }
+      )
   )
   .addStringOption(option => option.setName('title').setDescription('Message title').setRequired(true))
   .addStringOption(option => option.setName('message').setDescription('Message body').setRequired(true));
 
 const kickCommand = new SlashCommandBuilder()
   .setName('kick')
-  .setDescription('Queue a Roblox user to be kicked in-game')
+  .setDescription('Kick a roblox user')
   .addStringOption(option => option.setName('username').setDescription('Roblox username to kick').setRequired(true))
   .addStringOption(option => option.setName('reason').setDescription('Reason for kick').setRequired(false));
 
@@ -129,20 +134,29 @@ async function RegisterGlobalCommands() {
 
   try {
     const currentCommands = await rest.get(Routes.applicationCommands(clientId));
+    
+    const currentCommandsMap = new Map(currentCommands.map(cmd => [cmd.name, cmd]));
+    let changed = false;
 
-    const changed =
-      currentCommands.length !== commandsToRegister.length ||
-      currentCommands.some((cmd, i) => JSON.stringify(cmd) !== JSON.stringify(commandsToRegister[i]));
+    if (currentCommands.length !== commandsToRegister.length) {
+      changed = true;
+    } else {
+      for (const cmd of commandsToRegister) {
+        const current = currentCommandsMap.get(cmd.name);
+        if (!current || JSON.stringify(current) !== JSON.stringify(cmd)) {
+          changed = true;
+          break;
+        }
+      }
+    }
 
     if (changed) {
-      console.log('🔁 Changes detected. Updating global slash commands...');
       await rest.put(Routes.applicationCommands(clientId), { body: commandsToRegister });
-      console.log('✅ Slash commands registered.');
     } else {
-      console.log('✅ No changes in slash commands. Skipping registration.');
+      console.log('No changes in slash commands. Skipping.');
     }
   } catch (error) {
-    console.error('❌ Failed to register commands:', error);
+    console.error('Failed to register commands:', error);
   }
 }
 
@@ -174,9 +188,11 @@ client.on(Events.InteractionCreate, async interaction => {
 
     await saveStore(store);
     await interaction.reply({
-      content: `API key:\n\`${store.guilds[interaction.guildId].apiKey}\`\nPermission: **${requestedPerm}**`,
+      content: `API key:\n${store.guilds[interaction.guildId].apiKey}\nPermission: **${requestedPerm}**`,
       ephemeral: true
     });
+
+    return;
 
   } else if (!guildData) {
     await interaction.reply({ content: 'This server is not set up. Use /setup first.', ephemeral: true });
@@ -191,7 +207,7 @@ client.on(Events.InteractionCreate, async interaction => {
     const reason = interaction.options.getString('reason') || 'No reason provided';
 
     try {
-      const response = await fetch(`https://essentials.up.railway.app/kick`, {
+      const response = await fetch('https://essentials.up.railway.app/kick', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-api-key': key },
         body: JSON.stringify({ targetUsername: username, reason })
@@ -230,7 +246,7 @@ client.on(Events.InteractionCreate, async interaction => {
     const reason = interaction.options.getString('reason') || 'No reason provided';
 
     try {
-      const response = await fetch(`https://essentials.up.railway.app/shutdown`, {
+      const response = await fetch('https://essentials.up.railway.app/shutdown', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-api-key': key },
         body: JSON.stringify({ jobId, reason })
