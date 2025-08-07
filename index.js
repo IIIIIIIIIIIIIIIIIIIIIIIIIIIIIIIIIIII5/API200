@@ -119,7 +119,7 @@ const shutdownCommand = new SlashCommandBuilder()
 
 const rest = new REST({ version: '10' }).setToken(token);
 
-async function RegisterGlobslCommands() {
+async function RegisterGlobalCommands() {
   const commandsToRegister = [
     setupCommand.toJSON(),
     broadcastCommand.toJSON(),
