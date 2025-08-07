@@ -55,7 +55,7 @@ function requireBasicAuth(req, res, next) {
   let decoded;
   try {
     decoded = Buffer.from(b64, 'base64').toString('utf-8');
-  } catch {
+  } catch (e) {
     return res.status(400).json({ error: 'Bad auth header' });
   }
   const [user, pass] = decoded.split(':');
@@ -245,7 +245,7 @@ app.get('/shutdown/latest', asyncHandler(async (req, res) => {
   if (!key) return res.status(400).json({ error: 'Missing API key' });
 
   const store = await loadStore();
-  const payload = store.shutdowns?.[key];
+  const payload = store.shutdowns && store.shutdowns[key];
   if (!payload) return res.status(204).send();
 
   delete store.shutdowns[key];
@@ -373,7 +373,7 @@ client.on(Events.InteractionCreate, async interaction => {
   } else if (interaction.commandName === 'shutdown') {
     const key = await (async () => {
     const store = await loadStore();
-    return store.guilds[interaction.guildId]?.apiKey;
+    return store.guilds[interaction.guildId] && store.guilds[interaction.guildId].apiKey;
   })();
 
   if (!key) {
@@ -423,7 +423,7 @@ client.on(Events.InteractionCreate, async interaction => {
 }
 else if (interaction.commandName === 'announce') {
     const store = await loadStore();
-    const key = store.guilds[interaction.guildId]?.apiKey;
+    const key = store.guilds[interaction.guildId] && store.guilds[interaction.guildId].apiKey;
 
     if (!key) {
       await interaction.reply({ content: 'This server is not set up. Use /setup first.', ephemeral: true });
@@ -459,7 +459,8 @@ else if (interaction.commandName === 'announce') {
   else if (interaction.commandName === 'kick') {
   const key = await (async () => {
     const store = await loadStore();
-    return store.guilds[interaction.guildId]?.apiKey;
+    const guild = store.guilds[interaction.guildId];
+    return guild ? guild.apiKey : undefined;
   })();
 
   if (!key) {
@@ -504,6 +505,6 @@ else if (interaction.commandName === 'announce') {
     await interaction.reply({ content: 'Failed to contact the API.', ephemeral: true });
   }
 }
-);
+});
 
 client.login(token);
