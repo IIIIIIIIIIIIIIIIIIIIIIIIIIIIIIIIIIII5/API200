@@ -255,7 +255,9 @@ app.get('/shutdown/latest', asyncHandler(async (req, res) => {
 }));
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`API server running on port ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
