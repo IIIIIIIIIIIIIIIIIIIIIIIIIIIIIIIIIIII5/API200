@@ -503,6 +503,6 @@ client.on(Events.InteractionCreate, async interaction => {
     await interaction.reply({ content: 'Failed to contact the API.', ephemeral: true });
   }
 }
-});
+);
 
 client.login(token);
