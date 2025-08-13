@@ -150,6 +150,48 @@ async function RegisterGlobalCommands() {
   }
 }
 
+app.post('/api/kick', requireBasicAuth, async (req, res) => {
+    const { targetUsername, reason } = req.body;
+    if (!targetUsername) return res.status(400).json({ error: "targetUsername is required" });
+
+    const store = await loadStore();
+    const key = req.headers['x-api-key'];
+    if (!store.broadcasts[key] && !store.guilds[key]) {
+        return res.status(403).json({ error: "Invalid API key" });
+    }
+
+    const kickId = Date.now().toString();
+    store.kicks[key] = { id: kickId, targetUserId: targetUsername, reason, timestamp: Date.now() };
+    await saveStore(store);
+
+    res.json({ success: true, id: kickId });
+});
+
+app.post('/api/shutdown', requireBasicAuth, async (req, res) => {
+    const { jobId, reason } = req.body;
+    if (!jobId) return res.status(400).json({ error: "jobId is required" });
+
+    const store = await loadStore();
+    const key = req.headers['x-api-key'];
+    if (!store.broadcasts[key] && !store.guilds[key]) {
+        return res.status(403).json({ error: "Invalid API key" });
+    }
+
+    const shutdownId = Date.now().toString();
+    store.shutdowns[key] = { id: shutdownId, jobId, reason, timestamp: Date.now() };
+    await saveStore(store);
+
+    res.json({ success: true, id: shutdownId });
+});
+
+app.get('/api/latest', requireBasicAuth, async (req, res) => {
+    const key = req.query.key;
+    const store = await loadStore();
+    if (!store.broadcasts[key]) return res.json({ id: null });
+
+    res.json(store.broadcasts[key]);
+});
+
 client.on(Events.InteractionCreate, async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
