@@ -144,7 +144,7 @@ async function RegisterGlobalCommands() {
   }
 }
 
-app.post('/api/kick', requireBasicAuth, async (req, res) => {
+app.get('/api/kick', requireBasicAuth, async (req, res) => {
     const { targetUsername, reason } = req.body;
     if (!targetUsername) return res.status(400).json({ error: "targetUsername is required" });
 
@@ -161,7 +161,7 @@ app.post('/api/kick', requireBasicAuth, async (req, res) => {
     res.json({ success: true, id: kickId });
 });
 
-app.post('/api/shutdown', requireBasicAuth, async (req, res) => {
+app.get('/api/shutdown', requireBasicAuth, async (req, res) => {
     const { jobId, reason } = req.body;
     if (!jobId) return res.status(400).json({ error: "jobId is required" });
 
