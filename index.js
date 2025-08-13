@@ -233,7 +233,7 @@ client.on(Events.InteractionCreate, async interaction => {
   const sendApiRequest = async (endpoint, body) => {
     if (!key) return { error: 'API key missing.' };
     try {
-      const response = await fetch(`https://essentials.up.railway.app/${endpoint}`, {
+      const response = await fetch(`https://essentials.up.railway.app/api/${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-api-key': key },
         body: JSON.stringify(body)
@@ -242,8 +242,7 @@ client.on(Events.InteractionCreate, async interaction => {
     } catch (err) {
       return { error: err.message };
     }
-  };
-
+};
   if (interaction.commandName === 'kick') {
     const username = interaction.options.getString('username');
     const reason = interaction.options.getString('reason') || 'No reason provided';
