@@ -27,6 +27,8 @@ const token = process.env.BOT_TOKEN;
 const clientId = process.env.CLIENT_ID;
 console.log("Token is:", token ? "set" : "NOT set");
 
+const ESSENTIALS_API_BASE = 'https://essentials.up.railway.app';
+
 function generateKey() {
   return crypto.randomBytes(24).toString('hex');
 }
@@ -213,14 +215,17 @@ client.on(Events.InteractionCreate, async interaction => {
     console.log('Kick command:', { username, reason, key });
 
     try {
-      const response = await fetch('https://essentials.up.railway.app/kick', {
+      const response = await fetch(`${ESSENTIALS_API_BASE}/api/kick`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-api-key': key },
         body: JSON.stringify({ targetUsername: username, reason })
       });
 
       if (!response.ok) {
-        const errorText = await response.text();
+        const contentType = response.headers.get('content-type');
+        const errorText = contentType && contentType.includes('application/json') 
+          ? (await response.json()).error 
+          : await response.text();
         console.log('Kick API error response:', errorText);
         await interaction.reply({ content: `Kick failed: ${errorText}`, ephemeral: true });
         return;
@@ -253,15 +258,18 @@ client.on(Events.InteractionCreate, async interaction => {
     const reason = interaction.options.getString('reason') || 'No reason provided';
 
     try {
-      const response = await fetch('https://essentials.up.railway.app/shutdown', {
+      const response = await fetch(`${ESSENTIALS_API_BASE}/api/shutdown`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-api-key': key },
         body: JSON.stringify({ jobId, reason })
       });
 
       if (!response.ok) {
-        const error = await response.json();
-        await interaction.reply({ content: `Shutdown failed: ${error.error}`, ephemeral: true });
+        const contentType = response.headers.get('content-type');
+        const error = contentType && contentType.includes('application/json') 
+          ? (await response.json()).error 
+          : await response.text();
+        await interaction.reply({ content: `Shutdown failed: ${error}`, ephemeral: true });
         return;
       }
 
