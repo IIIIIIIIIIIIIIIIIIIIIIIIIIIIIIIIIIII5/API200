@@ -1,4 +1,3 @@
-
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -6,7 +5,7 @@ const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
 const fetch = require('node-fetch');
-const {  Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes, Events, PermissionFlagsBits } = require('discord.js');
+const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes, Events, PermissionFlagsBits } = require('discord.js');
 const admin = require('firebase-admin');
 
 const privateKey = process.env.PRIVATEKEY.replace(/\\n/g, '\n');
@@ -30,12 +29,6 @@ function generateKey() {
   return crypto.randomBytes(24).toString('hex');
 }
 
-function formatReadable(ts) {
-  if (!ts) return null;
-  const d = new Date(Number(ts));
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')} ${String(d.getUTCHours()).padStart(2,'0')}:${String(d.getUTCMinutes()).padStart(2,'0')}:${String(d.getUTCSeconds()).padStart(2,'0')}`;
-}
-
 async function loadStore() {
   const doc = await db.collection('store').doc('data').get();
   if (!doc.exists) return { guilds: {}, broadcasts: {}, kicks: {}, shutdowns: {} };
@@ -47,6 +40,7 @@ async function loadStore() {
 async function saveStore(store) {
   await db.collection('store').doc('data').set(store);
 }
+
 const app = express();
 app.use(cors());
 app.use(bodyParser.json());
@@ -78,7 +72,7 @@ const VALID_PERMS = Object.keys(PermissionFlagsBits);
 const setupCommand = new SlashCommandBuilder()
   .setName('setup')
   .setDescription('Generate/view this server’s API key and choose the required permission for commands')
-  .addStringOption(option => 
+  .addStringOption(option =>
     option.setName('permission')
       .setDescription('Discord permission required to use commands')
       .setRequired(true)
@@ -232,17 +226,26 @@ client.on(Events.InteractionCreate, async interaction => {
 
   const sendApiRequest = async (endpoint, body) => {
     if (!key) return { error: 'API key missing.' };
+
+    const basicAuth = Buffer.from(`${process.env.KEYS_USER}:${process.env.KEYS_PASS}`).toString('base64');
+
     try {
       const response = await fetch(`https://essentials.up.railway.app/api/${endpoint}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': key },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': key,
+          'Authorization': `Basic ${basicAuth}`
+        },
         body: JSON.stringify(body)
       });
+
       return response.ok ? await response.json() : { error: await response.text() };
     } catch (err) {
       return { error: err.message };
     }
-};
+  };
+
   if (interaction.commandName === 'kick') {
     const username = interaction.options.getString('username');
     const reason = interaction.options.getString('reason') || 'No reason provided';
