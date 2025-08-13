@@ -191,7 +191,7 @@ client.on(Events.InteractionCreate, async interaction => {
 
   const store = await loadStore();
   const guildData = store.guilds[interaction.guildId];
-  const key = guildData?.apiKey;
+  const key = guildData && guildData.apiKey;
 
   if (interaction.commandName === 'setup') {
     const requestedPerm = interaction.options.getString('permission');
