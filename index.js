@@ -166,7 +166,7 @@ app.post('/api/kick', requireBasicAuth, async (req, res) => {
     res.json({ success: true, id: kickId });
 });
 
-app.get('/api/kick/latest', requireBasicAuth, async (req, res) => {
+app.get('/api/kick/latest', async (req, res) => {
     const key = req.query.key;
     const store = await loadStore();
     if (!store.kicks[key]) return res.json({ id: null });
