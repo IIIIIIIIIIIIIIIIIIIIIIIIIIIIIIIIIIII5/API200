@@ -155,10 +155,22 @@ app.post('/api/kick', requireBasicAuth, async (req, res) => {
     }
 
     const kickId = Date.now().toString();
-    store.kicks[key] = { id: kickId, targetUserId: targetUsername, reason, timestamp: Date.now() };
+    store.kicks[key] = { 
+        id: kickId, 
+        targetUsername: targetUsername, 
+        reason, 
+        timestamp: Date.now() 
+    };
     await saveStore(store);
 
     res.json({ success: true, id: kickId });
+});
+
+app.get('/api/kick/latest', requireBasicAuth, async (req, res) => {
+    const key = req.query.key;
+    const store = await loadStore();
+    if (!store.kicks[key]) return res.json({ id: null });
+    res.json(store.kicks[key]);
 });
 
 app.post('/api/shutdown', requireBasicAuth, async (req, res) => {
