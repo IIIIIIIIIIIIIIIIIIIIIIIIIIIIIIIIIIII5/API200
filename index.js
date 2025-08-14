@@ -173,6 +173,16 @@ app.get('/api/kick/latest', async (req, res) => {
     res.json(store.kicks[key]);
 });
 
+app.get('/api/kick/latest/public', async (req, res) => {
+    const key = req.query.key;
+    if (!key) return res.status(400).json({ error: "key is required" });
+
+    const store = await loadStore();
+    if (!store.kicks[key]) return res.json({ id: null });
+
+    res.json(store.kicks[key]);
+});
+
 app.post('/api/shutdown', requireBasicAuth, async (req, res) => {
     const { jobId, reason } = req.body;
     if (!jobId) return res.status(400).json({ error: "jobId is required" });
