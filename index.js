@@ -238,13 +238,13 @@ client.on(Events.InteractionCreate, async interaction => {
     const u = interaction.options.getString('username');
     const r = interaction.options.getString('reason') || 'No reason';
     await send('kick', { targetUsername: u, reason: r });
-    return interaction.reply({ content: 'Kicked ${u}.', ephemeral: true });
+    return interaction.reply({ content: `Kicked ${u}.`, ephemeral: true });
   }
   if (interaction.commandName === 'serverban') {
     const u = interaction.options.getString('username');
     const r = interaction.options.getString('reason') || 'No reason';
     await send('serverban', { targetUsername: u, reason: r, jobId: interaction.guildId });
-   return interaction.reply({ content: `Server banned ${u}.`, ephemeral: true });
+  return interaction.reply({ content: `Server banned ${u}.`, ephemeral: true });
   }
   if (interaction.commandName === 'permban') {
     const u = interaction.options.getString('username');
