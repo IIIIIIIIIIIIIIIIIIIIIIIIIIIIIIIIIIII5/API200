@@ -267,7 +267,7 @@ const setupCommand = new SlashCommandBuilder()
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(Server running on ${PORT}));
+app.listen(PORT, () => console.log(`Server running on ${PORT}`));
 
 (async () => {
   await RegisterGlobalCommands();
