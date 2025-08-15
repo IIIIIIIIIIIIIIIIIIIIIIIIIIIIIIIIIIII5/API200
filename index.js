@@ -224,7 +224,7 @@ client.on(Events.InteractionCreate, async interaction => {
   const send = async (endpoint, body) => {
     const res = await fetch('https://essentials.up.railway.app/api/${endpoint}', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'Authorization': Basic ${basicAuth} },
+      headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'Authorization': 'Basic ${basicAuth}' },
       body: JSON.stringify(body)
     });
     return res.ok ? res.json() : { error: await res.text() };
