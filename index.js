@@ -220,7 +220,7 @@ client.on(Events.InteractionCreate, async interaction => {
   }
 
   const key = guildData.apiKey;
-  const basicAuth = Buffer.from(${process.env.KEYS_USER}:${process.env.KEYS_PASS}).toString('base64');
+  const basicAuth = Buffer.from(`${process.env.KEYS_USER}:${process.env.KEYS_PASS}`).toString('base64');
   const send = async (endpoint, body) => {
     const res = await fetch('https://essentials.up.railway.app/api/${endpoint}', {
       method: 'POST',
