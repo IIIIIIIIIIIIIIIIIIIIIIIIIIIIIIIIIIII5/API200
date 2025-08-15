@@ -183,6 +183,7 @@ app.get('/api/kick/latest/public', async (req, res) => {
     res.json(store.kicks[key]);
 });
 
+
 app.post('/api/shutdown', requireBasicAuth, async (req, res) => {
     const { jobId, reason } = req.body;
     if (!jobId) return res.status(400).json({ error: "jobId is required" });
