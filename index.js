@@ -74,8 +74,8 @@ const setupCommand = new SlashCommandBuilder()
   .setName('setup')
   .setDescription('Generate/view this server’s API key and choose the required permission for commands')
   .addStringOption(option =>
-    option.setName('permission')
-      .setDescription('Discord permission required to use commands')
+    option.setName('role')
+      .setDescription('Discord role required to use commands')
       .setRequired(true)
       .setAutocomplete(true)
   );
@@ -117,6 +117,10 @@ const shutdownCommand = new SlashCommandBuilder()
   .setDescription('Shutdown a specific Roblox server (by JobId)')
   .addStringOption(option => option.setName('jobid').setDescription('Roblox JobId').setRequired(true))
   .addStringOption(option => option.setName('reason').setDescription('Reason').setRequired(false));
+
+const serversCommand = new SlashCommandBuilder()
+  .setName('servers')
+  .setDescription('View how many servers and players are currently active in your Roblox game');
 
 const rest = new REST({ version: '10' }).setToken(token);
 
@@ -168,6 +172,43 @@ app.get('/api/serverban/latest/public', async (req, res) => {
   const key = req.query.key;
   const store = await loadStore();
   res.json(store.serverbans[key] || { id: null });
+});
+
+app.get('/api/servers', async (req, res) => {
+  const key = req.query.key;
+  if (!key) return res.status(400).json({ error: "API key required" });
+
+  const store = await loadStore();
+  const guildEntry = Object.values(store.guilds).find(g => g.apiKey === key);
+  if (!guildEntry) return res.status(403).json({ error: "Invalid API key" });
+
+  try {
+    const universeId = guildEntry.universeId;
+    if (!universeId) {
+      return res.status(400).json({ error: "Universe ID not linked to this API key" });
+    }
+
+    const robloxRes = await fetch(
+      `https://games.roblox.com/v1/games/${universeId}/servers/Public?limit=100`
+    );
+    if (!robloxRes.ok) {
+      throw new Error(`Roblox API error: ${await robloxRes.text()}`);
+    }
+
+    const robloxData = await robloxRes.json();
+    let servers = 0;
+    let players = 0;
+
+    if (robloxData.data && Array.isArray(robloxData.data)) {
+      servers = robloxData.data.length;
+      players = robloxData.data.reduce((acc, s) => acc + (s.playing || 0), 0);
+    }
+
+    return res.json({ servers, players });
+  } catch (err) {
+    console.error("Failed to fetch Roblox servers:", err);
+    return res.status(500).json({ error: "Failed to fetch servers from Roblox" });
+  }
 });
 
 app.post('/api/permban', requireBasicAuth, async (req, res) => {
@@ -240,6 +281,29 @@ client.on(Events.InteractionCreate, async interaction => {
     await send('kick', { targetUsername: u, reason: r });
     return interaction.reply({ content: `Kicked ${u}.`, ephemeral: true });
   }
+  if (interaction.commandName === 'setup') {
+  const role = interaction.options.getRole('role');
+
+  const store = await loadStore();
+  const existing = store.guilds[interaction.guildId] || {};
+  const apiKey = existing.apiKey || generateKey();
+
+  store.guilds[interaction.guildId] = {
+    apiKey,
+    allowedRole: role.id
+  };
+  await saveStore(store);
+
+  let gameLink = existing.gameLink || `https://www.roblox.com/games/${process.env.UNIVERSE_ID || 'UNKNOWN'}`;
+
+  return interaction.reply({
+    content: `✅ Setup complete!
+    Role <@&${role.id}> can now use bot commands.
+    API Key: \`${apiKey}\`
+    Game link: ${gameLink}`,
+    ephemeral: true
+  });
+}
   if (interaction.commandName === 'serverban') {
     const u = interaction.options.getString('username');
     const r = interaction.options.getString('reason') || 'No reason';
@@ -258,16 +322,37 @@ if (interaction.commandName === 'announce') {
   await send('announce', { message, title });
   return interaction.reply({ content: `Announcement sent.`, ephemeral: true });
 }
-const setupCommand = new SlashCommandBuilder()
-  .setName('setup')
-  .setDescription('Generate/view this server’s API key and choose the required permission for commands')
-  .addStringOption(option =>
-    option.setName('permission')
-      .setDescription('Discord permission required to use commands')
-      .setRequired(true)
-      .setAutocomplete(true)
-  );
+  if (interaction.commandName === 'servers') {
+  const store = await loadStore();
+  const guildData = store.guilds[interaction.guildId];
 
+  if (!guildData) {
+    return interaction.reply({
+      content: "This server isn’t set up yet. Use `/setup` first.",
+      ephemeral: true
+    });
+  }
+
+  try {
+    const res = await fetch(`https://essentials.up.railway.app/api/servers?key=${guildData.apiKey}`);
+    if (!res.ok) throw new Error(await res.text());
+
+    const data = await res.json();
+    const serverCount = data.servers || 0;
+    const playerCount = data.players || 0;
+
+    return interaction.reply({
+      content: `Servers online: **${serverCount}**\nPlayers online: **${playerCount}**`,
+      ephemeral: false
+    });
+  } catch (err) {
+    console.error("Servers fetch failed:", err);
+    return interaction.reply({
+      content: "❌ Failed to fetch server data. Make sure your API key is linked to a Roblox game.",
+      ephemeral: true
+    });
+  }
+}
 });
 
 const PORT = process.env.PORT || 3000;
