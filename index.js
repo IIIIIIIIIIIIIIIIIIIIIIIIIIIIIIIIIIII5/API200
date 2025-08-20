@@ -296,10 +296,9 @@ client.on(Events.InteractionCreate, async interaction => {
 
   let gameLink = existing.gameLink || `https://www.roblox.com/games/${process.env.UNIVERSE_ID || 'UNKNOWN'}`;
 
-  return interaction.reply({
-    content: `✅ Setup complete!
+  return interaction.reply({content: `Setup complete!
     Role <@&${role.id}> can now use bot commands.
-    API Key: \`${apiKey}\`
+    API Key: \`${apiKey}\`,
     Game link: ${gameLink}`,
     ephemeral: true
   });
