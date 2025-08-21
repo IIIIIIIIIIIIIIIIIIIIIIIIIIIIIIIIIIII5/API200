@@ -77,7 +77,11 @@ const setupCommand = new SlashCommandBuilder()
     option.setName('role')
       .setDescription('Discord role required to use commands')
       .setRequired(true)
-      .setAutocomplete(true)
+  )
+  .addStringOption(option =>
+    option.setName('placeid')
+      .setDescription('Roblox Place ID of your game')
+      .setRequired(true)
   );
 
 const announceCommand = new SlashCommandBuilder()
