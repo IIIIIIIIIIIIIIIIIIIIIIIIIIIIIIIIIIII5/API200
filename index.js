@@ -287,6 +287,7 @@ client.on(Events.InteractionCreate, async interaction => {
   }
   if (interaction.commandName === 'setup') {
   const role = interaction.options.getRole('role');
+  const placeId = interaction.options.getString('placeid');
 
   const store = await loadStore();
   const existing = store.guilds[interaction.guildId] || {};
@@ -294,16 +295,16 @@ client.on(Events.InteractionCreate, async interaction => {
 
   store.guilds[interaction.guildId] = {
     apiKey,
-    allowedRole: role.id
+    allowedRole: role.id,
+    placeId
   };
   await saveStore(store);
 
-  let gameLink = existing.gameLink || `https://www.roblox.com/games/${process.env.UNIVERSE_ID || 'UNKNOWN'}`;
-
-  return interaction.reply({content: `Setup complete!
-    Role <@&${role.id}> can now use bot commands.
-    API Key: \`${apiKey}\`,
-    Game link: ${gameLink}`,
+  return interaction.reply({
+    content: `✅ Setup complete!
+    - Role <@&${role.id}> can now use bot commands
+    - API Key: \`${apiKey}\`
+    - Linked Game: https://www.roblox.com/games/${placeId}`,
     ephemeral: true
   });
 }
