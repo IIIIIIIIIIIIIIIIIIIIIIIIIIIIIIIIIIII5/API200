@@ -6,8 +6,8 @@ client.commands = new Collection();
 
 const commandFiles = fs.readdirSync('./commands').filter(file => file.endsWith('.js'));
 for (const file of commandFiles) {
-  const command = await import(`./commands/${file}`);
-  client.commands.set(command.default.data.name, command.default);
+  const { default: command } = await import(`./commands/${file}`);
+  client.commands.set(command.data.name, command);
 }
 
 let db = {};
@@ -26,13 +26,20 @@ client.on('interactionCreate', async interaction => {
   if (!command) return;
 
   try {
-    await command.default.execute(interaction, db, saveDB);
+    await command.execute(interaction, db, saveDB);
   } catch (error) {
     console.error(error);
-    await interaction.reply({
-      content: 'Error executing command.',
-      ephemeral: true,
-    });
+    if (interaction.replied || interaction.deferred) {
+      await interaction.followUp({
+        content: 'Error executing command.',
+        flags: 64,
+      });
+    } else {
+      await interaction.reply({
+        content: 'Error executing command.',
+        flags: 64,
+      });
+    }
   }
 });
 
