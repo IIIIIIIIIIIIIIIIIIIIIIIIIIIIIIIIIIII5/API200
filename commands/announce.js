@@ -38,7 +38,7 @@ export default {
       const universeId = placeInfo.universeId || null;
       if (!universeId) throw new Error('Failed to get Universe ID.');
 
-      const res = await fetch(`{API_URL}/announce`, {
+      const res = await fetch(`${API_URL}/announce`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
