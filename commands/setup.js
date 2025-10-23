@@ -1,4 +1,4 @@
-import { SlashCommandBuilder, ActionRowBuilder, TextInputBuilder, ModalBuilder, TextInputStyle } from 'discord.js';
+import { SlashCommandBuilder, ActionRowBuilder, TextInputBuilder, ModalBuilder, TextInputStyle, ComponentType } from 'discord.js';
 
 export default {
   data: new SlashCommandBuilder()
@@ -9,7 +9,7 @@ export default {
     if (!interaction.member.permissions.has('Administrator')) {
       return interaction.reply({
         content: 'You need administrator permissions to run setup.',
-        ephemeral: true,
+        flags: 64,
       });
     }
 
@@ -36,12 +36,10 @@ export default {
 
     await interaction.showModal(modal);
 
-    const submitted = await interaction.client.awaitModalSubmit({
+    const submitted = await interaction.awaitModalSubmit({
+      filter: i => i.customId === 'setupModal' && i.user.id === interaction.user.id,
       time: 60000,
-      filter: i =>
-        i.customId === 'setupModal' &&
-        i.user.id === interaction.user.id &&
-        i.guild?.id === interaction.guild?.id,
+      componentType: ComponentType.ModalSubmit,
     }).catch(() => null);
 
     if (!submitted) return;
@@ -54,7 +52,7 @@ export default {
 
     await submitted.reply({
       content: 'Server linked successfully.',
-      ephemeral: true,
+      flags: 64,
     });
   },
 };
