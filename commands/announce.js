@@ -1,6 +1,6 @@
 import { SlashCommandBuilder } from 'discord.js';
 import fetch from 'node-fetch';
-const API_URL = "yourapiurlhere"
+const API_URL = process.env.API_URL;
 
 export default {
   data: new SlashCommandBuilder()
