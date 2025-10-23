@@ -36,9 +36,12 @@ export default {
 
     await interaction.showModal(modal);
 
-    const submitted = await interaction.awaitModalSubmit({
+    const submitted = await interaction.client.awaitModalSubmit({
       time: 60000,
-      filter: i => i.customId === 'setupModal' && i.user.id === interaction.user.id,
+      filter: i =>
+        i.customId === 'setupModal' &&
+        i.user.id === interaction.user.id &&
+        i.guild?.id === interaction.guild?.id,
     }).catch(() => null);
 
     if (!submitted) return;
